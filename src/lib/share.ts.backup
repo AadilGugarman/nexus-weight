@@ -1,0 +1,550 @@
+import { toPng } from 'html-to-image';
+import { currentThemeColors } from './theme';
+import { shareBinaryFile, saveBinaryFile } from './nativeShare';
+import { isNative as isNativePlatform } from './platform';
+import { getCompanyProfile, getBusinessLabels, getCatalogLinkData } from './settings';
+import { computeLoadStats, computeLabelGroups, computeNestedGroups, flattenNestedGroups, type BreakdownLine } from './loadStats';
+import { resolveLinkedChain } from './catalogLinks';
+import type { Load, Entry, Party, CatalogFieldNumber } from '../types';
+
+/* ---------- palette (hex only — html-to-image cannot parse oklch) ---------- */
+const INK = '#0f172a';
+const SUB = '#64748b';
+const FAINT = '#94a3b8';
+const PAPER = '#ffffff';
+const CREAM = '#fafaf9';
+const SOFT = '#f4f4f5';
+const LINE = '#e7e5e4';
+
+// Theme-driven accent colors (follow the user's selected theme). Read at call time.
+function accents() {
+  const c = currentThemeColors();
+  return { GREEN: c.deep, LIME: c.accent };
+}
+
+export interface ShareCtx { load: Load; entries: Entry[]; party?: Party; }
+
+// inline weight/scale icon (white), used inside the receipt logo badge
+const WEIGHT_ICON = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.5"/><path d="M4 8h16"/><path d="M4 8l-2.5 6a4 4 0 0 0 5 0z"/><path d="M20 8l-2.5 6a4 4 0 0 0 5 0z"/><path d="M8 21h8"/><path d="M12 8v13"/></svg>`;
+
+function fmtDate(d?: string) {
+  return new Date(d || Date.now()).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+function fmtTime(d?: string | null) {
+  if (!d) return '—';
+  return new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+}
+/** Business-configured custom fields present on this load, paired with their labels. A blank label hides its field everywhere, including exports. */
+function customFieldLines(load: Load): Array<{ label: string; value: string }> {
+  const { customLabel1, customLabel2, customLabel3 } = getBusinessLabels();
+  return [
+    { label: customLabel1, value: load.custom_field_1 || '' },
+    { label: customLabel2, value: load.custom_field_2 || '' },
+    { label: customLabel3, value: load.custom_field_3 || '' },
+  ].filter((f) => f.label && f.value);
+}
+
+/** The proven Label1->Label2(->Label3) chain — derived fresh from whichever
+ * catalog values are actually Linked, not from any stored setting. Empty
+ * when nothing has been linked yet (full independent-flat fallback). */
+function linkedChain(labels: Array<string | null | undefined>): CatalogFieldNumber[] {
+  const { catalogValues, catalogValueLinks } = getCatalogLinkData();
+  return resolveLinkedChain(catalogValues, catalogValueLinks, labels);
+}
+
+/** Grouped weight breakdowns (one per label that actually mixes >1 value
+ * across this load's entries via Group Entry Mode) — computed from real
+ * entry-level data. Empty for the common single-classification load, which
+ * keeps every export's layout unchanged from before this feature existed.
+ * Fields that are part of the proven Linked Values chain are reported by
+ * nestedBreakdownLines() below instead of here. */
+function labelBreakdowns(load: Load, entries: Entry[]): Array<{ label: string; groups: ReturnType<typeof computeLabelGroups> }> {
+  const { customLabel1, customLabel2, customLabel3 } = getBusinessLabels();
+  const labels = [customLabel1, customLabel2, customLabel3];
+  const chain = linkedChain(labels);
+  const fieldNumbers = ([1, 2, 3] as CatalogFieldNumber[]).filter((n) => !chain.includes(n));
+  return fieldNumbers
+    .map((n) => ({ label: labels[n - 1] || '', groups: computeLabelGroups(load, entries, n) }))
+    .filter((g) => g.label && g.groups.length > 1);
+}
+
+/** Nested Label1->Label2(->Label3) breakdown lines for whichever fields have
+ * actually been Linked (see flattenNestedGroups) — empty until a business
+ * links at least one pair of values. */
+function nestedBreakdownLines(load: Load, entries: Entry[]): BreakdownLine[] {
+  const { customLabel1, customLabel2, customLabel3 } = getBusinessLabels();
+  const labels = [customLabel1, customLabel2, customLabel3];
+  const chain = linkedChain(labels);
+  if (chain.length < 2) return [];
+  const groups = computeNestedGroups(load, entries, chain);
+  const worthShowing = groups.length > 0 && (groups.length > 1 || groups.some((g) => g.children.length > 1));
+  return worthShowing ? flattenNestedGroups(groups, labels) : [];
+}
+
+/* ============================ RECEIPT IMAGE ============================ */
+function esc(s: string): string {
+  return s.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]!));
+}
+
+function buildReceiptNode(c: ShareCtx): HTMLDivElement {
+  const { load, entries, party } = c;
+  const { entryCount, gross, tare, net, firstEntryAt, lastEntryAt } = computeLoadStats(load, entries);
+  const classification = [load.custom_field_1, load.custom_field_2, load.custom_field_3].filter(Boolean).join(' · ') || '—';
+  const breakdowns = labelBreakdowns(load, entries);
+  const nestedLines = nestedBreakdownLines(load, entries);
+  const { GREEN, LIME } = accents();
+  const company = getCompanyProfile();
+  const companyBanner = company.companyName ? `
+    <div style="background:linear-gradient(135deg,${GREEN},${LIME});padding:16px 30px;color:#fff;">
+      <div style="font-size:20px;font-weight:900;letter-spacing:0.2px;line-height:1.1;">${esc(company.companyName)}</div>
+      ${[company.companyPhone, company.companyAddress].filter(Boolean).length ? `<div style="font-size:12px;opacity:0.9;margin-top:3px;">${esc([company.companyPhone, company.companyAddress].filter(Boolean).join('  ·  '))}</div>` : ''}
+    </div>` : '';
+
+  const root = document.createElement('div');
+  Object.assign(root.style, {
+    width: '680px', background: CREAM, fontFamily: '-apple-system, "Segoe UI", Roboto, Arial, sans-serif',
+    color: INK, boxSizing: 'border-box',
+    // Kept near the origin (not thousands of px offscreen) and hidden via
+    // opacity instead of an extreme fixed offset — some WebViews (notably
+    // Android's, used by the native app) cull/skip layout for elements far
+    // outside any plausible viewport, which produced a blank captured PNG.
+    position: 'fixed', top: '0', left: '0', opacity: '0', pointerEvents: 'none', zIndex: '-1',
+  } as CSSStyleDeclaration);
+
+  // weight chips
+  const chips = entries.map((e, i) => `
+    <div style="background:${PAPER};border:1px solid ${LINE};border-radius:10px;padding:8px 6px;text-align:center;position:relative;">
+      <div style="position:absolute;top:4px;left:6px;font-size:9px;font-weight:800;color:${FAINT};">${i + 1}</div>
+      <div style="font-size:16px;font-weight:800;color:${INK};font-variant-numeric:tabular-nums;letter-spacing:-0.3px;">${Number(e.weight).toFixed(2)}</div>
+    </div>`).join('');
+
+  const metaCell = (label: string, value: string, accent = false) => `
+    <div>
+      <div style="font-size:10px;color:${FAINT};text-transform:uppercase;letter-spacing:1.2px;font-weight:800;">${label}</div>
+      <div style="font-size:16px;font-weight:800;color:${accent ? GREEN : INK};margin-top:2px;">${esc(value)}</div>
+    </div>`;
+
+  root.innerHTML = `
+    ${companyBanner}
+    <!-- header -->
+    <div style="background:${INK};padding:24px 30px;display:flex;align-items:center;gap:14px;">
+      <div style="width:48px;height:48px;border-radius:13px;background:linear-gradient(135deg,${GREEN},${LIME});display:flex;align-items:center;justify-content:center;">${WEIGHT_ICON}</div>
+      <div style="flex:1;">
+        <div style="font-size:22px;font-weight:900;color:#fff;letter-spacing:-0.5px;line-height:1;">NEXUS WEIGHT</div>
+        <div style="display:inline-block;margin-top:7px;padding:3px 8px;background:${LIME};border-radius:5px;font-size:9px;color:#1c1207;letter-spacing:2px;font-weight:900;">DIGITAL WEIGHT REGISTER</div>
+      </div>
+      <div style="text-align:right;">
+        <div style="font-size:10px;color:#cbd5e1;letter-spacing:1px;text-transform:uppercase;font-weight:800;">Date</div>
+        <div style="font-size:15px;color:#fff;font-weight:800;">${fmtDate(load.created_at)}</div>
+      </div>
+    </div>
+
+    <!-- classification ribbon -->
+    <div style="background:linear-gradient(90deg,${GREEN},${LIME});padding:11px 30px;display:flex;align-items:center;justify-content:space-between;color:#fff;">
+      <div style="font-size:18px;font-weight:900;letter-spacing:0.3px;">${esc(classification)}</div>
+      <div style="font-size:13px;font-weight:700;opacity:0.9;">${esc(load.label)}</div>
+    </div>
+
+    <!-- meta -->
+    <div style="padding:20px 30px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+      ${metaCell('Party', party?.name || '—')}
+      ${metaCell('Vehicle Number', load.label || '—')}
+      ${metaCell('Total Entries', String(entryCount))}
+    </div>
+
+    ${firstEntryAt ? `
+    <div style="padding:4px 30px 8px;display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+      ${metaCell('First Entry Time', fmtTime(firstEntryAt))}
+      ${metaCell('Last Entry Time', fmtTime(lastEntryAt))}
+    </div>` : ''}
+
+    ${customFieldLines(load).length ? `
+    <!-- custom business fields -->
+    <div style="padding:4px 30px 8px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;">
+      ${customFieldLines(load).map((f) => metaCell(f.label, f.value, true)).join('')}
+    </div>` : ''}
+
+    <div style="height:1px;background:${LINE};margin:12px 30px;"></div>
+
+    <!-- weights -->
+    <div style="padding:4px 26px 0;font-size:11px;color:${SUB};font-weight:800;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;padding-left:30px;">Weight Entries (kg)</div>
+    <div style="padding:0 26px;display:grid;grid-template-columns:repeat(6,1fr);gap:7px;">
+      ${chips}
+    </div>
+
+    <!-- gross / tare / net -->
+    <div style="padding:16px 30px 0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+      <div style="background:${SOFT};border-radius:12px;padding:12px;text-align:center;">
+        <div style="font-size:10px;color:${SUB};text-transform:uppercase;letter-spacing:1px;font-weight:800;">Gross Weight</div>
+        <div style="font-size:18px;font-weight:900;color:${INK};margin-top:3px;">${gross.toFixed(2)}</div>
+      </div>
+      <div style="background:${SOFT};border-radius:12px;padding:12px;text-align:center;">
+        <div style="font-size:10px;color:${SUB};text-transform:uppercase;letter-spacing:1px;font-weight:800;">Tare Weight</div>
+        <div style="font-size:18px;font-weight:900;color:${INK};margin-top:3px;">${tare.toFixed(2)}</div>
+      </div>
+      <div style="background:${SOFT};border-radius:12px;padding:12px;text-align:center;">
+        <div style="font-size:10px;color:${SUB};text-transform:uppercase;letter-spacing:1px;font-weight:800;">Net Weight</div>
+        <div style="font-size:18px;font-weight:900;color:${GREEN};margin-top:3px;">${net.toFixed(2)}</div>
+      </div>
+    </div>
+
+    <!-- net total -->
+    <div style="margin:18px 30px 0;background:${INK};border-radius:16px;padding:20px 24px;display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div style="font-size:11px;color:${FAINT};text-transform:uppercase;letter-spacing:2px;font-weight:800;">Net Weight</div>
+        <div style="font-size:13px;color:${FAINT};margin-top:2px;">${entryCount} entries · Gross ${gross.toFixed(2)} kg − Tare ${tare.toFixed(2)} kg</div>
+      </div>
+      <div style="font-size:40px;font-weight:900;color:${LIME};letter-spacing:-1px;line-height:1;">${net.toFixed(2)}<span style="font-size:18px;color:${LIME};font-weight:800;"> kg</span></div>
+    </div>
+
+    ${nestedLines.length ? `
+    <div style="padding:16px 30px 0;">
+      <div style="font-size:11px;color:${SUB};font-weight:800;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">Summary Breakdown</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        ${nestedLines.map((line) => line.weight == null
+          ? `<div style="padding-left:${line.depth * 16}px;font-size:13px;font-weight:900;color:${INK};">${esc(line.text)}</div>`
+          : `<div style="margin-left:${line.depth * 16}px;background:${SOFT};border-radius:10px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:13px;font-weight:800;color:${INK};">${esc(line.text)}</span>
+              <span style="font-size:14px;font-weight:900;color:${GREEN};">${line.weight.toFixed(2)} kg</span>
+            </div>`).join('')}
+      </div>
+    </div>` : ''}
+
+    ${breakdowns.map(({ label, groups }) => `
+    <div style="padding:16px 30px 0;">
+      <div style="font-size:11px;color:${SUB};font-weight:800;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;">${esc(label)} Wise</div>
+      <div style="display:flex;flex-direction:column;gap:6px;">
+        ${groups.map((g) => `
+        <div style="background:${SOFT};border-radius:10px;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:13px;font-weight:800;color:${INK};">${esc(g.value)}</span>
+          <span style="font-size:14px;font-weight:900;color:${GREEN};">${g.weight.toFixed(2)} kg</span>
+        </div>`).join('')}
+      </div>
+    </div>`).join('')}
+
+    <div style="padding:16px 30px 24px;text-align:center;font-size:10px;color:${FAINT};letter-spacing:0.5px;">
+      Generated by Nexus Weight · ${new Date().toLocaleString('en-IN')}
+    </div>
+  `;
+  return root;
+}
+
+async function renderReceiptPng(c: ShareCtx): Promise<string> {
+  const node = buildReceiptNode(c);
+  document.body.appendChild(node);
+  try {
+    // Wait for fonts to finish loading and for two paint cycles to elapse —
+    // a single requestAnimationFrame isn't always enough for a freshly
+    // appended, off-screen, multi-font node to finish layout on slower
+    // Android WebView, which was producing an intermittently blank capture.
+    await document.fonts.ready.catch(() => {});
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
+    const width = node.scrollWidth || 680;
+    const height = node.scrollHeight;
+    return await toPng(node, { pixelRatio: 2.5, backgroundColor: CREAM, cacheBust: true, width, height });
+  } finally {
+    document.body.removeChild(node);
+  }
+}
+
+/** Opens the native share sheet with the receipt image. The user picks ANY
+ * recipient/group manually — the load's party is never pre-selected. */
+export async function shareWhatsAppImage(c: ShareCtx) {
+  try {
+    const dataUrl = await renderReceiptPng(c);
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+    const filename = `nexus-${c.load.label.replace(/\s+/g, '-')}.png`;
+    // Native → writes to cache + system share sheet. Web → Web Share / download.
+    await shareBinaryFile({ filename, blob, mimeType: 'image/png', title: 'Nexus Weight Receipt' });
+  } catch (error) {
+    console.error('WhatsApp image share failed:', error);
+    throw new Error('Failed to generate or share image. Please try again.');
+  }
+}
+
+/** Download the receipt image to device storage. */
+export async function downloadImage(c: ShareCtx) {
+  const dataUrl = await renderReceiptPng(c);
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  const filename = `nexus-${c.load.label.replace(/\s+/g, '-')}.png`;
+  if (isNativePlatform()) {
+    await shareBinaryFile({ filename, blob, mimeType: 'image/png', title: 'Nexus Weight Receipt' });
+    return;
+  }
+  triggerDownload(blob, filename);
+}
+
+/** Native system print (WiFi / Bluetooth / any installed printer).
+ * In the Android WebView there is no window.print(), so we hand the PDF to
+ * the OS share/print sheet instead. */
+export async function printReceipt(c: ShareCtx) {
+  if (isNativePlatform()) {
+    await exportPDF(c);
+    return;
+  }
+  const node = buildReceiptNode(c);
+  const html = node.innerHTML;
+  const win = window.open('', '_blank', 'width=720,height=900');
+  if (!win) throw new Error('Popup blocked — allow popups to print');
+  win.document.open();
+  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Nexus Weight</title>
+    <style>
+      *{box-sizing:border-box;margin:0;padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+      body{background:${CREAM};font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif;color:${INK};}
+      .sheet{width:680px;max-width:100%;margin:0 auto;background:${CREAM};}
+      @media print{
+        @page{size:A4;margin:10mm;}
+        body{background:#fff;}
+        .sheet{width:100%;background:#fff;}
+        /* keep each receipt section intact across page breaks (browsers
+           ignore this when a section is taller than one page, so nothing
+           can be clipped or lost) */
+        .sheet > div{break-inside:avoid;page-break-inside:avoid;}
+      }
+    </style></head><body><div class="sheet">${html}</div>
+    <script>window.onload=function(){setTimeout(function(){window.print();},250);};window.onafterprint=function(){window.close();};</script>
+    </body></html>`);
+  win.document.close();
+}
+
+function triggerDownload(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/* ============================ PROFESSIONAL PDF ============================ */
+async function buildPdfBlob(c: ShareCtx): Promise<{ blob: Blob; filename: string }> {
+  // Lazy-load pdf-lib so it's only fetched when a user actually exports a PDF,
+  // keeping it out of the initial app bundle.
+  const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
+  const { load, entries, party } = c;
+  const classification = [load.custom_field_1, load.custom_field_2, load.custom_field_3].filter(Boolean).join(' · ') || '—';
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+
+  const W = 595, H = 842, M = 46;
+  const tc = currentThemeColors();
+  const green = rgb(tc.deepRgb[0], tc.deepRgb[1], tc.deepRgb[2]);
+  const lime = rgb(tc.accentRgb[0], tc.accentRgb[1], tc.accentRgb[2]);
+  const ink = rgb(0.059, 0.09, 0.165);
+  const sub = rgb(0.39, 0.45, 0.55);
+  const faint = rgb(0.58, 0.64, 0.72);
+  const soft = rgb(0.957, 0.957, 0.961);
+  const line = rgb(0.906, 0.898, 0.882);
+
+  let page = pdf.addPage([W, H]);
+  const { entryCount, gross, tare, net, firstEntryAt, lastEntryAt } = computeLoadStats(load, entries);
+  const breakdowns = labelBreakdowns(load, entries);
+  const nestedLines = nestedBreakdownLines(load, entries);
+
+  const rightText = (t: string, x: number, y: number, size: number, f = font, color = ink) =>
+    page.drawText(t, { x: x - f.widthOfTextAtSize(t, size), y, size, font: f, color });
+
+  /* header */
+  page.drawRectangle({ x: 0, y: H - 100, width: W, height: 100, color: ink });
+  page.drawRectangle({ x: M, y: H - 76, width: 40, height: 40, color: green });
+  // weight-scale glyph
+  const cx = M + 20;
+  const white = rgb(1, 1, 1);
+  page.drawCircle({ x: cx, y: H - 46, size: 2, color: white }); // top knob
+  page.drawLine({ start: { x: cx, y: H - 48 }, end: { x: cx, y: H - 66 }, thickness: 2, color: white }); // stand
+  page.drawLine({ start: { x: M + 8, y: H - 52 }, end: { x: M + 32, y: H - 52 }, thickness: 2, color: white }); // beam
+  page.drawLine({ start: { x: M + 12, y: H - 66 }, end: { x: M + 28, y: H - 66 }, thickness: 2, color: white }); // base
+  // pans
+  page.drawLine({ start: { x: M + 8, y: H - 52 }, end: { x: M + 5, y: H - 60 }, thickness: 1.2, color: white });
+  page.drawLine({ start: { x: M + 8, y: H - 52 }, end: { x: M + 11, y: H - 60 }, thickness: 1.2, color: white });
+  page.drawLine({ start: { x: M + 32, y: H - 52 }, end: { x: M + 29, y: H - 60 }, thickness: 1.2, color: white });
+  page.drawLine({ start: { x: M + 32, y: H - 52 }, end: { x: M + 35, y: H - 60 }, thickness: 1.2, color: white });
+  const company = getCompanyProfile();
+  if (company.companyName) {
+    // Company name is the primary title; app name becomes the subtitle line.
+    page.drawText(company.companyName.slice(0, 30), { x: M + 52, y: H - 52, size: 18, font: bold, color: rgb(1, 1, 1) });
+    const csub = ['NEXUS WEIGHT', company.companyPhone, company.companyAddress].filter(Boolean).join('  ·  ');
+    page.drawText(csub.slice(0, 64), { x: M + 52, y: H - 70, size: 8, font, color: faint });
+  } else {
+    page.drawText('NEXUS WEIGHT', { x: M + 52, y: H - 56, size: 22, font: bold, color: rgb(1, 1, 1) });
+    page.drawText('DIGITAL WEIGHT REGISTER', { x: M + 52, y: H - 74, size: 8, font, color: faint });
+  }
+  page.drawText('DATE', { x: W - M - font.widthOfTextAtSize('DATE', 8), y: H - 52, size: 8, font: bold, color: faint });
+  rightText(fmtDate(load.created_at), W - M, H - 70, 13, bold, rgb(1, 1, 1));
+
+  /* classification ribbon */
+  page.drawRectangle({ x: 0, y: H - 134, width: W, height: 34, color: green });
+  page.drawText(classification.toUpperCase(), { x: M, y: H - 122, size: 15, font: bold, color: rgb(1, 1, 1) });
+  rightText(load.label, W - M, H - 122, 12, bold, rgb(0.85, 0.95, 0.75));
+
+  /* meta card */
+  let y = H - 134 - 22;
+  const cardH = 56;
+  page.drawRectangle({ x: M, y: y - cardH, width: W - 2 * M, height: cardH, color: soft, borderColor: line, borderWidth: 1 });
+  const third = (W - 2 * M) / 3;
+  const metaItems: Array<[string, string]> = [
+    ['PARTY', party?.name || '—'],
+    ['VEHICLE NUMBER', load.label || '—'],
+    ['TOTAL ENTRIES', String(entryCount)],
+  ];
+  metaItems.forEach(([l, v], i) => {
+    const cx = M + 16 + i * third;
+    page.drawText(l, { x: cx, y: y - 20, size: 8, font: bold, color: faint });
+    page.drawText(v.length > 22 ? v.slice(0, 20) + '…' : v, { x: cx, y: y - 38, size: 14, font: bold, color: ink });
+  });
+  y -= cardH + 26;
+
+  /* first / last entry time */
+  if (firstEntryAt) {
+    const timeCardH = 44;
+    page.drawRectangle({ x: M, y: y - timeCardH, width: W - 2 * M, height: timeCardH, color: soft, borderColor: line, borderWidth: 1 });
+    const half = (W - 2 * M) / 2;
+    const timeItems: Array<[string, string]> = [
+      ['FIRST ENTRY TIME', fmtTime(firstEntryAt)],
+      ['LAST ENTRY TIME', fmtTime(lastEntryAt)],
+    ];
+    timeItems.forEach(([l, v], i) => {
+      const cx = M + 16 + i * half;
+      page.drawText(l, { x: cx, y: y - 17, size: 8, font: bold, color: faint });
+      page.drawText(v, { x: cx, y: y - 33, size: 12, font: bold, color: ink });
+    });
+    y -= timeCardH + 26;
+  }
+
+  /* custom business fields (configured per business in Manage > Business Configuration) */
+  const customFields = customFieldLines(load);
+  if (customFields.length) {
+    page.drawRectangle({ x: M, y: y - cardH, width: W - 2 * M, height: cardH, color: soft, borderColor: line, borderWidth: 1 });
+    customFields.forEach((f, i) => {
+      const cx = M + 16 + i * third;
+      page.drawText(f.label.toUpperCase(), { x: cx, y: y - 20, size: 8, font: bold, color: faint });
+      const v = f.value.length > 22 ? f.value.slice(0, 20) + '…' : f.value;
+      page.drawText(v, { x: cx, y: y - 38, size: 14, font: bold, color: green });
+    });
+    y -= cardH + 26;
+  }
+
+  /* weight table — adaptive column count keeps page count down: short loads
+   * read as one clean column, long loads pack 2–3 columns across the width. */
+  const numCols = entries.length <= 15 ? 1 : entries.length <= 40 ? 2 : 3;
+  const tableX = M, tableW = W - 2 * M, colW = tableW / numCols, rowH = 17;
+  const header = (topY: number) => {
+    page.drawText('WEIGHT ENTRIES', { x: tableX, y: topY, size: 10, font: bold, color: sub });
+    rightText('KG', W - M, topY, 10, bold, sub);
+    const ly = topY - 7;
+    page.drawLine({ start: { x: tableX, y: ly }, end: { x: tableX + tableW, y: ly }, thickness: 1.5, color: green });
+    return ly - 17;
+  };
+  const drawRow = (e: Entry, i: number, x: number, ry: number, r: number) => {
+    // Entry No + Weight only — no per-entry timestamp (see First/Last Entry
+    // Time in the meta card above instead).
+    if (r % 2 === 1) page.drawRectangle({ x, y: ry - 5, width: colW - 10, height: rowH, color: soft });
+    page.drawText(String(i + 1), { x: x + 8, y: ry, size: 9, font, color: faint });
+    const kg = Number(e.weight).toFixed(2);
+    page.drawText(kg, { x: x + colW - 22 - bold.widthOfTextAtSize(kg, 11), y: ry, size: 11, font: bold, color: ink });
+  };
+
+  let idx = 0;
+  let startY = header(y);
+  const fill = (bottom: number) => {
+    const perCol = Math.max(1, Math.floor((startY - bottom) / rowH));
+    let col = 0, r = 0;
+    while (idx < entries.length && col < numCols) {
+      drawRow(entries[idx], idx, tableX + col * colW, startY - r * rowH, r);
+      idx++; r++;
+      if (r >= perCol) { r = 0; col++; }
+    }
+  };
+  fill(190);
+  while (idx < entries.length) {
+    page = pdf.addPage([W, H]);
+    startY = header(H - M);
+    const remaining = entries.length - idx;
+    const fits = remaining <= Math.floor((startY - 190) / rowH) * numCols;
+    fill(fits ? 190 : 60);
+  }
+
+  /* summary blocks */
+  const sy = 150;
+  const bw = (W - 2 * M - 20) / 3;
+  const mini = (x: number, label: string, val: string) => {
+    page.drawRectangle({ x, y: sy, width: bw, height: 42, color: soft, borderColor: line, borderWidth: 1 });
+    page.drawText(label, { x: x + 10, y: sy + 27, size: 8, font: bold, color: sub });
+    page.drawText(val, { x: x + 10, y: sy + 9, size: 15, font: bold, color: ink });
+  };
+  mini(M, 'GROSS WEIGHT', `${gross.toFixed(2)} kg`);
+  mini(M + bw + 10, 'TARE WEIGHT', `${tare.toFixed(2)} kg`);
+  mini(M + 2 * (bw + 10), 'NET WEIGHT', `${net.toFixed(2)} kg`);
+
+  /* total bar */
+  page.drawRectangle({ x: M, y: 84, width: W - 2 * M, height: 52, color: ink });
+  page.drawText('NET WEIGHT', { x: M + 18, y: 116, size: 9, font: bold, color: faint });
+  page.drawText(`${entryCount} entries`, { x: M + 18, y: 98, size: 11, font, color: rgb(0.75, 0.78, 0.82) });
+  const tw = `${net.toFixed(2)} kg`;
+  rightText(tw, W - M - 18, 100, 26, bold, lime);
+
+  /* label-wise breakdown — one section per label that mixes >1 value
+   * (Group Entry Mode), plus the nested Label1->Label2(->Label3) tree under
+   * Flexible Hierarchical Catalogs. Absent entirely for the common
+   * single-value load, so ordinary receipts print exactly as before this
+   * feature existed. */
+  if (nestedLines.length || breakdowns.length) {
+    page = pdf.addPage([W, H]);
+    let by = H - M;
+    page.drawText('LOAD SUMMARY BREAKDOWN', { x: M, y: by, size: 14, font: bold, color: ink });
+    by -= 30;
+    for (const l of nestedLines) {
+      if (by < 60) { page = pdf.addPage([W, H]); by = H - M; }
+      const x = M + l.depth * 16;
+      if (l.weight == null) {
+        page.drawText(l.text, { x, y: by, size: 12, font: bold, color: ink });
+        by -= 24;
+      } else {
+        page.drawRectangle({ x, y: by - 6, width: W - M - x, height: 24, color: soft });
+        page.drawText(l.text, { x: x + 12, y: by, size: 11, font: bold, color: ink });
+        rightText(`${l.weight.toFixed(2)} kg`, W - M - 12, by, 12, bold, green);
+        by -= 30;
+      }
+    }
+    if (nestedLines.length) by -= 10;
+    for (const { label, groups } of breakdowns) {
+      if (by < 100) { page = pdf.addPage([W, H]); by = H - M; }
+      page.drawText(`${label.toUpperCase()} WISE`, { x: M, y: by, size: 10, font: bold, color: sub });
+      by -= 6;
+      page.drawLine({ start: { x: M, y: by }, end: { x: W - M, y: by }, thickness: 1, color: line });
+      by -= 20;
+      for (const g of groups) {
+        if (by < 60) { page = pdf.addPage([W, H]); by = H - M; }
+        page.drawRectangle({ x: M, y: by - 6, width: W - 2 * M, height: 24, color: soft });
+        page.drawText(g.value, { x: M + 12, y: by, size: 11, font: bold, color: ink });
+        rightText(`${g.weight.toFixed(2)} kg`, W - M - 12, by, 12, bold, green);
+        by -= 30;
+      }
+      by -= 16;
+    }
+  }
+
+  page.drawText(`Generated by Nexus Weight · ${new Date().toLocaleString('en-IN')}`, { x: M, y: 56, size: 8, font, color: faint });
+
+  const bytes = await pdf.save();
+  const blob = new Blob([bytes.slice().buffer], { type: 'application/pdf' });
+  const filename = `nexus-${load.label.replace(/\s+/g, '-')}.pdf`;
+  return { blob, filename };
+}
+
+/** Share the PDF via the native share sheet (WhatsApp, email, etc. — kept as
+ * the original export for backward compatibility with existing callers). */
+export async function exportPDF(c: ShareCtx) {
+  const { blob, filename } = await buildPdfBlob(c);
+  // Native → save + share sheet (open in / share the PDF). Web → download.
+  await shareBinaryFile({ filename, blob, mimeType: 'application/pdf', title: 'Nexus Weight — PDF' });
+}
+
+/** Save the PDF straight to device storage (Documents on native, browser
+ * download on web) — no share sheet, distinct from exportPDF. */
+export async function downloadPDF(c: ShareCtx) {
+  const { blob, filename } = await buildPdfBlob(c);
+  await saveBinaryFile({ filename, blob });
+}

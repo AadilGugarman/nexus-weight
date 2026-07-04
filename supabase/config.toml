@@ -1,0 +1,5 @@
+[functions.authorize]
+verify_jwt = true
+
+[functions.validate-code]
+verify_jwt = false

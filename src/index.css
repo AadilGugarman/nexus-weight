@@ -1,0 +1,176 @@
+@import "tailwindcss";
+
+/* ============================================================
+   THEME SYSTEM
+   - data-theme: lime | blue | purple | rose | emerald | indigo  (accent family)
+   - data-mode:  dark | light  (surface family; 'system' resolves before it lands here)
+   We remap the small set of Tailwind utility classes the app
+   uses so the whole UI re-skins from these definitions.
+   ============================================================ */
+
+:root {
+  /* accent (default: amber) */
+  --accent: #f59e0b;
+  --accent-strong: #fbbf24;
+  --accent-deep: #b45309;
+  --accent-fg: #1c1207;          /* text on accent buttons */
+  --accent-soft: rgba(245, 158, 11, 0.16);
+
+  /* surfaces (default: dark) */
+  --bg: #020617;                 /* app background (slate-950) */
+  --surface: #0f172a;            /* cards (slate-900) */
+  --surface-2: #1e293b;          /* inputs (slate-800) */
+  --border: #1e293b;             /* slate-800 */
+  --border-2: #334155;           /* slate-700 */
+  --text: #f1f5f9;               /* slate-100 */
+  --text-muted: #a9b6c8;         /* brighter for readability */
+  --text-faint: #7d8ba0;         /* still readable on dark */
+  --header: rgba(15, 23, 42, 0.9);
+}
+
+/* -------- accent themes -------- */
+[data-theme="blue"] {
+  --accent: #3b82f6;
+  --accent-strong: #60a5fa;
+  --accent-deep: #1d4ed8;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(59, 130, 246, 0.16);
+}
+[data-theme="purple"] {
+  --accent: #a855f7;
+  --accent-strong: #c084fc;
+  --accent-deep: #7e22ce;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(168, 85, 247, 0.16);
+}
+[data-theme="rose"] {
+  --accent: #e11d48;
+  --accent-strong: #fb7185;
+  --accent-deep: #be123c;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(225, 29, 72, 0.16);
+}
+[data-theme="emerald"] {
+  --accent: #10b981;
+  --accent-strong: #34d399;
+  --accent-deep: #047857;
+  --accent-fg: #022c22;
+  --accent-soft: rgba(16, 185, 129, 0.16);
+}
+[data-theme="indigo"] {
+  --accent: #6366f1;
+  --accent-strong: #818cf8;
+  --accent-deep: #4338ca;
+  --accent-fg: #ffffff;
+  --accent-soft: rgba(99, 102, 241, 0.16);
+}
+
+/* -------- light mode surfaces -------- */
+[data-mode="light"] {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --border: #e5e7eb;
+  --border-2: #cbd5e1;
+  --text: #0f172a;
+  --text-muted: #475569;         /* darker → strong contrast on white */
+  --text-faint: #64748b;         /* AA-compliant on white */
+  --header: rgba(255, 255, 255, 0.92);
+}
+
+html, body, #root { height: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+input, select, textarea { font-size: 16px; }
+::selection { background: var(--accent); color: var(--accent-fg); }
+
+/* ============================================================
+   Utility remaps — keep component class names, change palette.
+   ============================================================ */
+
+/* backgrounds */
+.bg-slate-950 { background-color: var(--bg) !important; }
+.bg-slate-900 { background-color: var(--surface) !important; }
+.bg-slate-800 { background-color: var(--surface-2) !important; }
+.bg-slate-900\/90, .bg-slate-900\/95 { background-color: var(--header) !important; }
+
+/* background hover/active states — without these, elements like
+   "hover:bg-slate-700" fall through to Tailwind's raw (always-dark) color,
+   which looks fine in dark mode by coincidence but is visibly wrong
+   (a dark flash) on light-mode surfaces. */
+.hover\:bg-slate-800:hover { background-color: var(--surface-2) !important; }
+.hover\:bg-slate-700:hover { background-color: var(--border-2) !important; }
+.active\:bg-slate-700:active { background-color: var(--border-2) !important; }
+
+/* borders */
+.border-slate-800 { border-color: var(--border) !important; }
+.border-slate-700 { border-color: var(--border-2) !important; }
+.hover\:border-slate-700:hover, .hover\:border-slate-600:hover { border-color: var(--border-2) !important; }
+
+/* text */
+.text-slate-100, .text-slate-200 { color: var(--text) !important; }
+.text-white { color: var(--text) !important; }
+.text-slate-300 { color: var(--text-muted) !important; }
+.text-slate-400 { color: var(--text-muted) !important; }
+.text-slate-500 { color: var(--text-faint) !important; }
+.text-slate-600 { color: var(--text-faint) !important; }
+
+/* placeholder text should stay muted (not invisible) in both modes */
+.placeholder-slate-500::placeholder, .placeholder-slate-700::placeholder { color: var(--text-faint) !important; opacity: 1; }
+
+/* accent — text */
+.text-lime-400, .text-lime-300, .text-lime-500, .text-lime-600 { color: var(--accent) !important; }
+/* accent — backgrounds */
+.bg-lime-500, .bg-lime-400 { background-color: var(--accent) !important; }
+.hover\:bg-lime-400:hover, .hover\:bg-lime-500:hover { background-color: var(--accent-strong) !important; }
+.active\:bg-lime-500:active { background-color: var(--accent) !important; }
+.active\:text-slate-950:active { color: var(--accent-fg) !important; }
+/* accent button text */
+.bg-lime-500.text-slate-950, .bg-lime-400.text-slate-950 { color: var(--accent-fg) !important; }
+.text-slate-950 { color: var(--accent-fg) !important; }
+/* accent — borders / rings / soft */
+.border-lime-500, .focus\:border-lime-500:focus { border-color: var(--accent) !important; }
+.border-lime-500\/30 { border-color: var(--accent-soft) !important; }
+.bg-lime-500\/15, .bg-lime-500\/10 { background-color: var(--accent-soft) !important; }
+.ring-lime-500\/20 { --tw-ring-color: var(--accent-soft) !important; }
+
+/* keep pure-white text on accent buttons even in light mode */
+[data-mode="light"] .bg-lime-500.text-slate-950,
+[data-mode="light"] .bg-lime-400.text-slate-950 { color: var(--accent-fg) !important; }
+
+/* In light mode, accent TEXT uses the deeper shade for AA contrast on white
+   (but NOT when it sits on an accent-colored background). */
+[data-mode="light"] .text-lime-400:not(.bg-lime-500):not(.bg-lime-400),
+[data-mode="light"] .text-lime-300:not(.bg-lime-500):not(.bg-lime-400),
+[data-mode="light"] .text-lime-500,
+[data-mode="light"] .text-lime-600 { color: var(--accent-deep) !important; }
+
+/* dropdown item hover — themed for light & dark */
+.dropdown-item:hover { background-color: var(--surface-2) !important; }
+
+/* ============================================================
+   Modern scrollbar
+   ============================================================ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-2) transparent;
+}
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: linear-gradient(var(--border-2), var(--border));
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--accent);
+  background-clip: padding-box;
+  border: 2px solid transparent;
+}
+*::-webkit-scrollbar-corner { background: transparent; }
