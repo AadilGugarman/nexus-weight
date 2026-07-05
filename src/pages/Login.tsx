@@ -65,8 +65,10 @@ export default function Login() {
         );
         setMode("login");
       } else {
+        // Use the current origin for redirect, ensuring it works in both dev and production
+        const redirectUrl = `${window.location.origin}/reset-password`;
         const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
-          redirectTo: window.location.origin,
+          redirectTo: redirectUrl,
         });
         if (error) throw error;
         setMsg("Password reset link sent to your email.");

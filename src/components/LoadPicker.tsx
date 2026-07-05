@@ -47,9 +47,7 @@ export default function LoadPicker({ onClose, onPick, editLoad }: { onClose: () 
   const showVehicleError = touched && vehicleMissing && !vehicleCheck.valid && label.trim().length > 0;
   const partyMissing = !partyId;
   const showPartyError = touched && partyMissing;
-  const label1Missing = !!customLabel1 && !customField1.trim();
-  const showLabel1Error = touched && label1Missing;
-  const canSubmit = !partyMissing && !label1Missing;
+  const canSubmit = !partyMissing;
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -158,7 +156,11 @@ export default function LoadPicker({ onClose, onPick, editLoad }: { onClose: () 
               value={partyId} 
               onChange={setPartyId} 
               placeholder="Select or add party"
-              options={parties.map((p) => ({ value: p.id, label: p.name, sub: p.place || undefined }))}
+              options={parties.map((p) => ({ 
+                value: p.id, 
+                label: p.place ? `${p.name} · ${p.place}` : p.name, 
+                sub: undefined 
+              }))}
               onCreate={async (name: string) => {
                 const newParty = await addParty({ name: name.toUpperCase(), party_type: 'customer' });
                 return newParty.id;
@@ -179,13 +181,8 @@ export default function LoadPicker({ onClose, onPick, editLoad }: { onClose: () 
               Search existing catalog values or type a new one to create it on the fly. */}
           {customLabel1 && (
             <div>
-              <label className={lbl}><Tag size={13} className="text-lime-500" /> {customLabel1} <span className="text-red-400">*</span></label>
+              <label className={lbl}><Tag size={13} className="text-lime-500" /> {customLabel1}</label>
               <CatalogField fieldNumber={1} value={customField1} onChange={changeField1} placeholder={`Search or add ${customLabel1}…`} uppercase />
-              {showLabel1Error && (
-                <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-400 font-medium">
-                  <AlertCircle size={13} /> {customLabel1} is required.
-                </p>
-              )}
             </div>
           )}
           {customLabel2 && (

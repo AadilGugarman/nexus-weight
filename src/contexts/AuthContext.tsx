@@ -14,6 +14,11 @@ async function fetchAuthorized(): Promise<boolean> {
   } catch { return false; }
 }
 
+// Check if current URL is a password recovery link
+function isRecoveryUrl(): boolean {
+  return window.location.hash.includes('type=recovery');
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
@@ -24,6 +29,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const runAuthzCheck = useCallback(async (s: Session | null) => {
     if (!s?.access_token) { setAuthorized(false); setCheckingAuthz(false); return; }
+    
+    // Skip authorization check if this is a password recovery session
+    if (isRecoveryUrl()) {
+      setAuthorized(false);
+      setCheckingAuthz(false);
+      return;
+    }
+    
     setCheckingAuthz(true);
     const ok = await fetchAuthorized();
     setAuthorized(ok);

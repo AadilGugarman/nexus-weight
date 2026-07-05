@@ -7,8 +7,10 @@ import { useAuth } from './contexts/authState';
 import { ToastProvider } from './components/Toast';
 import Splash from './components/Splash';
 import ProtectedRoute from './components/ProtectedRoute';
+import RecoveryRedirect from './components/RecoveryRedirect';
 import Layout from './components/Layout';
 import Login from './pages/Login';
+import ResetPassword from './pages/ResetPassword';
 import EntryPage from './pages/Entry';
 import { useStore } from './store/useStore';
 import { initSyncEngine, flushQueue } from './lib/sync';
@@ -59,6 +61,10 @@ function Bootstrap() {
   }, [setOnline, refreshPending]);
 
   useEffect(() => {
+    // Don't load user data or start realtime if this is a password recovery session
+    const isRecoveryUrl = window.location.hash.includes('type=recovery');
+    if (isRecoveryUrl) return;
+    
     if (user) { void loadAll(); startRealtime(user.id); }
     else stopRealtime();
     return () => stopRealtime();
@@ -122,8 +128,10 @@ function Bootstrap() {
       )}
 
     <Suspense fallback={<RouteFallback />}>
+      <RecoveryRedirect />
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/" element={<ProtectedRoute><Layout><EntryPage /></Layout></ProtectedRoute>} />
         <Route path="/loads" element={<ProtectedRoute><Layout><Loads /></Layout></ProtectedRoute>} />
         <Route path="/loads/:id" element={<ProtectedRoute><Layout><LoadDetail /></Layout></ProtectedRoute>} />

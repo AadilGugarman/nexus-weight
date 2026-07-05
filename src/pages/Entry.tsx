@@ -559,10 +559,12 @@ export default function EntryPage() {
                 const partyLabel = party 
                   ? (party.place ? `${party.name} · ${party.place}` : party.name)
                   : 'No party';
+                // Show vehicle only if there's no party location
+                const sublabel = party?.place ? undefined : (l.label || undefined);
                 return {
                   value: l.id,
                   label: partyLabel,
-                  sub: l.label || 'No vehicle',
+                  sub: sublabel,
                 };
               })}
             placeholder="Select load"
