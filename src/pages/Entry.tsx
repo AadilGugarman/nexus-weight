@@ -13,6 +13,7 @@ import {
   Printer,
   Download,
   Eye,
+  Users,
 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useStore } from "../store/useStore";
@@ -475,13 +476,6 @@ export default function EntryPage() {
             <div className="space-y-2">
               {loads.slice(0, 10).map((l) => {
                 const p = parties.find((x) => x.id === l.party_id);
-                const fv = [
-                  l.custom_field_1,
-                  l.custom_field_2,
-                  l.custom_field_3,
-                ]
-                  .filter(Boolean)
-                  .join(" · ");
                 const finalized = l.status === "finalized";
                 return (
                   <button
@@ -494,26 +488,20 @@ export default function EntryPage() {
                     className="w-full flex items-center gap-3 bg-slate-900 border border-slate-800 hover:border-slate-700 rounded-2xl p-3.5 text-left transition active:scale-[0.98]"
                   >
                     <div className="w-10 h-10 rounded-xl bg-slate-800 flex items-center justify-center shrink-0">
-                      <Package size={18} className="text-lime-400" />
+                      <Users size={18} className="text-lime-400" />
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-white truncate">
+                        {p ? p.name : "No party"}{p?.place ? ` · ${p.place}` : ''}
+                      </p>
+                      <p className="text-xs text-slate-500 truncate mt-0.5">
                         {l.label}
-                        {fv ? (
-                          <span className="text-lime-400 font-semibold">
-                            {" "}
-                            · {fv}
-                          </span>
-                        ) : (
-                          ""
-                        )}
                       </p>
                       <p className="text-xs text-slate-500 truncate">
-                        {p ? p.name : "No party"} ·{" "}
                         {new Date(l.created_at || "").toLocaleDateString(
                           "en-IN",
                         )}{" "}
-                        · {finalized ? "Finalized" : "Draft"}
+                        · <span style={{ color: finalized ? 'var(--accent-deep)' : 'var(--text-muted)' }}>{finalized ? "Finalized" : "Draft"}</span>
                       </p>
                     </div>
                     <ChevronRight
@@ -549,14 +537,17 @@ export default function EntryPage() {
             onChange={(v) => setActiveLoad(v)}
             options={loads
               .filter((l) => l.status !== "finalized")
-              .map((l) => ({
-                value: l.id,
-                label: l.label,
-                sub:
-                  [l.custom_field_1, l.custom_field_2, l.custom_field_3]
-                    .filter(Boolean)
-                    .join(" · ") || undefined,
-              }))}
+              .map((l) => {
+                const party = parties.find((p) => p.id === l.party_id);
+                const partyLabel = party 
+                  ? (party.place ? `${party.name} · ${party.place}` : party.name)
+                  : 'No party';
+                return {
+                  value: l.id,
+                  label: partyLabel,
+                  sub: l.label || 'No vehicle',
+                };
+              })}
             placeholder="Select load"
           />
         </div>

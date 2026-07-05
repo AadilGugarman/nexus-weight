@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { Search, Loader2, Package, ChevronRight, Filter, X, Lock, ArrowDownLeft, ArrowUpRight, CheckCircle2, Circle, Trash2 } from 'lucide-react';
+import { Search, Loader2, Package, ChevronRight, Filter, X, Lock, CheckCircle2, Circle, Trash2 } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useToast } from '../components/toastContext';
 import { apiGet } from '../lib/api';
@@ -248,22 +248,30 @@ export default function History() {
           <div className="space-y-1.5 pb-2">
             {result.rows.map((r) => {
               const p = parties.find((x) => x.id === r.party_id);
-              const isFinalized = r.status === 'finalized';
-              const isIn = (r.movement_type || 'inward') === 'inward';
               const isSelected = selected.has(r.id);
               return (
                 <button key={r.id} onClick={() => { if (selectMode) toggleSelect(r.id); else navigate(`/loads/${r.id}`); }} className="w-full flex items-center gap-2.5 rounded-lg px-3 py-2.5 text-left" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
-                  {selectMode ? (
+                  {selectMode && (
                     isSelected ? <CheckCircle2 size={20} className="text-lime-400 shrink-0" /> : <Circle size={20} className="text-slate-600 shrink-0" />
-                  ) : (
-                    isIn ? <ArrowDownLeft size={14} className="text-emerald-400 shrink-0" /> : <ArrowUpRight size={14} className="text-orange-400 shrink-0" />
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <p className="font-bold text-white text-sm truncate">{r.label}</p>
-                      {isFinalized && <Lock size={10} style={{ color: 'var(--accent)' }} className="shrink-0" />}
+                    <p className="font-bold text-white text-sm truncate">{p ? p.name : 'No party'}{p?.place ? ` · ${p.place}` : ''}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{r.label}</p>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <p className="text-xs text-slate-500">{new Date(r.created_at || '').toLocaleDateString('en-IN')}</p>
+                      <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5 bg-lime-500/15 text-lime-400">
+                        {r.entry_count} {r.entry_count === 1 ? 'entry' : 'entries'}
+                      </span>
+                      {r.status === 'finalized' ? (
+                        <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5" style={{ background: 'var(--accent-soft)', color: 'var(--accent-deep)' }}>
+                          <Lock size={9} /> Finalized
+                        </span>
+                      ) : (
+                        <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5 bg-slate-700 text-slate-400">
+                          Draft
+                        </span>
+                      )}
                     </div>
-                    <p className="text-[11px] text-slate-500 truncate">{p ? p.name : 'No party'} · {new Date(r.created_at || '').toLocaleDateString('en-IN')}</p>
                   </div>
                   <p className="text-lime-400 font-black text-sm tabular-nums shrink-0">{Number(r.total_weight).toFixed(0)} kg</p>
                   {!selectMode && <ChevronRight size={15} className="text-slate-600 shrink-0" />}

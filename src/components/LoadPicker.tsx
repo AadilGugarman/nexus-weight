@@ -42,19 +42,21 @@ export default function LoadPicker({ onClose, onPick }: { onClose: () => void; o
 
   const vehicleCheck = validateVehicleNumber(label);
   const vehicleMissing = !label.trim();
-  const showVehicleError = touched && (vehicleMissing || !vehicleCheck.valid);
+  const showVehicleError = touched && vehicleMissing && !vehicleCheck.valid && label.trim().length > 0;
+  const partyMissing = !partyId;
+  const showPartyError = touched && partyMissing;
   const label1Missing = !!customLabel1 && !customField1.trim();
   const showLabel1Error = touched && label1Missing;
-  const canSubmit = !vehicleMissing && vehicleCheck.valid && !label1Missing;
+  const canSubmit = !partyMissing && !label1Missing;
 
   const create = async (e: React.FormEvent) => {
     e.preventDefault();
     setTouched(true);
-    // Vehicle number and Label 1 (when configured) are required — weighing cannot start without them.
+    // Party name and Label 1 (when configured) are required — weighing cannot start without them.
     if (!canSubmit) return;
     setBusy(true);
     const chosen = date ? new Date(`${date}T${new Date().toTimeString().slice(0, 8)}`) : new Date();
-    const vehicle = vehicleCheck.normalized || formatVehicleNumber(label);
+    const vehicle = label.trim() ? (vehicleCheck.normalized || formatVehicleNumber(label)) : 'NO-VEHICLE';
     const load = await addLoad({
       label: vehicle,
       party_id: partyId || null,
@@ -94,9 +96,8 @@ export default function LoadPicker({ onClose, onPick }: { onClose: () => void; o
           {/* Row 1: Vehicle Number + Date */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={lbl}><Truck size={13} className="text-lime-500" /> Vehicle Number <span className="text-red-400">*</span></label>
+              <label className={lbl}><Truck size={13} className="text-lime-500" /> Vehicle Number</label>
               <input
-                autoFocus
                 placeholder="e.g. MH 12 AB 1234"
                 value={label}
                 onChange={(e) => setLabel(e.target.value.toUpperCase())}
@@ -111,17 +112,17 @@ export default function LoadPicker({ onClose, onPick }: { onClose: () => void; o
           </div>
           {showVehicleError && (
             <p className="-mt-2 flex items-center gap-1.5 text-xs text-red-400 font-medium">
-              <AlertCircle size={13} /> {vehicleMissing ? 'Vehicle number is required.' : vehicleCheck.error}
+              <AlertCircle size={13} /> {vehicleCheck.error || 'Invalid vehicle number format.'}
             </p>
           )}
 
           {/* Row 2: Party */}
           <div>
-            <label className={lbl}><Users size={13} className="text-lime-500" /> Party</label>
+            <label className={lbl}><Users size={13} className="text-lime-500" /> Party <span className="text-red-400">*</span></label>
             <Dropdown 
               value={partyId} 
               onChange={setPartyId} 
-              placeholder="Select party (optional)"
+              placeholder="Select or add party"
               options={parties.map((p) => ({ value: p.id, label: p.name, sub: p.place || undefined }))}
               onCreate={async (name: string) => {
                 const newParty = await addParty({ name: name.toUpperCase(), party_type: 'customer' });
@@ -130,6 +131,11 @@ export default function LoadPicker({ onClose, onPick }: { onClose: () => void; o
               createLabel={(text: string) => `Add party "${text}"`}
               uppercase
             />
+            {showPartyError && (
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-red-400 font-medium">
+                <AlertCircle size={13} /> Party is required.
+              </p>
+            )}
           </div>
 
           {/* Custom fields — configured per business in Manage > Business Configuration.

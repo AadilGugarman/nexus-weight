@@ -140,7 +140,7 @@ export default function Login() {
               <input
                 type="text"
                 required
-                placeholder="Company Access Code"
+                placeholder="Enter Company Access Code"
                 value={accessCode}
                 onChange={(e) => setAccessCode(e.target.value.toUpperCase())}
                 className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-3 py-3 text-white placeholder-slate-500 focus:border-lime-500 outline-none tracking-wider font-semibold"

@@ -51,7 +51,7 @@ export default function AccessGate() {
               autoFocus
               value={code}
               onChange={(e) => setCode(e.target.value.toUpperCase())}
-              placeholder="e.g. 2026-ASZNEXUS"
+              placeholder="Enter your company access code"
               className="w-full bg-slate-800 border border-slate-700 rounded-xl pl-10 pr-3 py-3 text-white placeholder-slate-500 focus:border-lime-500 outline-none tracking-wider font-semibold"
             />
           </div>

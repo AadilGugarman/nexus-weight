@@ -345,22 +345,22 @@ export default function LoadDetail() {
           }}
         >
           <div className="flex items-start justify-between gap-3">
-            {/* Left: Vehicle, Party, Label 1, Total Entries/Variety */}
+            {/* Left: Party, Vehicle, Label 1, Total Entries/Variety */}
             <div className="flex-1 min-w-0">
+              {party && (
+                <p
+                  className="text-lg font-black leading-tight truncate"
+                  style={{ color: "var(--text)" }}
+                >
+                  {party.name}{party.place && ` · ${party.place}`}
+                </p>
+              )}
               <p
-                className="text-lg font-black leading-tight truncate"
-                style={{ color: "var(--text)" }}
+                className="text-xs font-semibold truncate"
+                style={{ color: "var(--text-muted)", marginTop: party ? '0.25rem' : '0' }}
               >
                 {load.label}
               </p>
-              {party && (
-                <p
-                  className="text-xs font-semibold truncate mt-0.5"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {party.name}
-                </p>
-              )}
               {/* Show only Label 1 (Fruit) if available */}
               {load.custom_field_1 && (
                 <div className="mt-2">

@@ -24,7 +24,7 @@ export const THEME_COLORS: Record<ThemeName, { accent: string; deep: string; acc
 
 export function currentThemeName(): ThemeName {
   const t = localStorage.getItem('theme') as ThemeName;
-  return t && t in THEME_COLORS ? t : 'lime';
+  return t && t in THEME_COLORS ? t : 'indigo';
 }
 export function currentThemeColors() {
   return THEME_COLORS[currentThemeName()];

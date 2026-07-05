@@ -1,11 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Package, Plus, Trash2, ChevronRight, ArrowDownLeft, ArrowUpRight, Lock, Search, Filter as FilterIcon, X, CheckCircle2, Circle } from 'lucide-react';
+import { Package, Plus, Trash2, ChevronRight, Lock, Search, Filter as FilterIcon, X, CheckCircle2, Circle } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import { useToast } from '../components/toastContext';
 import LoadPicker from '../components/LoadPicker';
 import DatePicker from '../components/DatePicker';
 import Pagination from '../components/Pagination';
+import { db } from '../lib/db';
 import type { Load, MovementType } from '../types';
 
 type Filter = 'all' | 'inward' | 'outward';
@@ -24,6 +25,24 @@ export default function Loads() {
   const [pageSize, setPageSize] = useState(25);
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [entryCounts, setEntryCounts] = useState<Map<string, number>>(new Map());
+
+  // Load entry counts for all loads
+  useEffect(() => {
+    const loadEntryCounts = async () => {
+      const counts = new Map<string, number>();
+      for (const load of loads) {
+        const count = await db.entries
+          .where('load_id')
+          .equals(load.id)
+          .filter((e) => !e.is_deleted)
+          .count();
+        counts.set(load.id, count);
+      }
+      setEntryCounts(counts);
+    };
+    void loadEntryCounts();
+  }, [loads]);
 
   const activeFilterCount = [dateFrom, dateTo].filter(Boolean).length;
   const clearFilters = () => { setDateFrom(''); setDateTo(''); };
@@ -160,9 +179,8 @@ export default function Loads() {
       <div className="space-y-2 pb-2">
         {paged.map((l) => {
           const p = parties.find((x) => x.id === l.party_id);
-          const fv = [l.custom_field_1, l.custom_field_2, l.custom_field_3].filter(Boolean).join(' · ');
-          const type = (l.movement_type || 'inward') as MovementType;
           const isSelected = selected.has(l.id);
+          const entryCount = entryCounts.get(l.id) || 0;
           return (
             <div key={l.id} className="flex items-center gap-3 bg-slate-900 border border-slate-800 rounded-xl p-3">
               {selectMode && (
@@ -170,17 +188,26 @@ export default function Loads() {
                   {isSelected ? <CheckCircle2 size={22} className="text-lime-400" /> : <Circle size={22} className="text-slate-600" />}
                 </button>
               )}
-              <button onClick={() => { if (selectMode) toggleSelect(l.id); else { setActiveLoad(l.id); navigate('/'); } }} className="flex-1 text-left min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="font-bold text-white truncate">{l.label || 'No vehicle'}{fv ? <span className="text-lime-400 font-semibold"> · {fv}</span> : ''}</p>
-                  <TypeBadge type={type} />
-                  {l.status === 'finalized' && (
+              <button onClick={() => { if (selectMode) toggleSelect(l.id); else navigate(`/loads/${l.id}`); }} className="flex-1 text-left min-w-0">
+                <p className="font-bold text-white truncate">{p ? p.name : 'No party'}{p?.place ? ` · ${p.place}` : ''}</p>
+                <p className="text-xs text-slate-500 mt-0.5">{l.label || 'No vehicle'}</p>
+                <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                  <p className="text-xs text-slate-500">
+                    {new Date(l.created_at || '').toLocaleDateString('en-IN')}
+                  </p>
+                  <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5 bg-lime-500/15 text-lime-400">
+                    {entryCount} {entryCount === 1 ? 'entry' : 'entries'}
+                  </span>
+                  {l.status === 'finalized' ? (
                     <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5" style={{ background: 'var(--accent-soft)', color: 'var(--accent-deep)' }}>
                       <Lock size={10} /> Finalized
                     </span>
+                  ) : (
+                    <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5 bg-slate-700 text-slate-400">
+                      Draft
+                    </span>
                   )}
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5">{p ? p.name : 'No party'} · {new Date(l.created_at || '').toLocaleDateString('en-IN')}</p>
               </button>
               {!selectMode && (
                 <>
@@ -206,15 +233,5 @@ export default function Loads() {
         </div>
       )}
     </div>
-  );
-}
-
-function TypeBadge({ type }: { type: MovementType }) {
-  const isIn = type === 'inward';
-  return (
-    <span className={`shrink-0 inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5 ${isIn ? 'bg-emerald-500/15 text-emerald-400' : 'bg-orange-500/15 text-orange-400'}`}>
-      {isIn ? <ArrowDownLeft size={11} /> : <ArrowUpRight size={11} />}
-      {isIn ? 'Inward' : 'Outward'}
-    </span>
   );
 }
