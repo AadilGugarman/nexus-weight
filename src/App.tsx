@@ -7,7 +7,6 @@ import { useAuth } from './contexts/authState';
 import { ToastProvider } from './components/Toast';
 import Splash from './components/Splash';
 import ProtectedRoute from './components/ProtectedRoute';
-import RecoveryRedirect from './components/RecoveryRedirect';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import ResetPassword from './pages/ResetPassword';
@@ -128,7 +127,6 @@ function Bootstrap() {
       )}
 
     <Suspense fallback={<RouteFallback />}>
-      <RecoveryRedirect />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/reset-password" element={<ResetPassword />} />
@@ -147,6 +145,14 @@ function Bootstrap() {
 }
 
 export default function App() {
+  // Intercept recovery tokens BEFORE React Router initializes
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (hash.includes('type=recovery') && !window.location.pathname.includes('/reset-password')) {
+      window.location.href = `/reset-password${hash}`;
+    }
+  }, []);
+
   return (
     <AuthProvider>
       <ToastProvider>
