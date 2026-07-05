@@ -149,7 +149,10 @@ export default function App() {
   useEffect(() => {
     const hash = window.location.hash;
     if (hash.includes('type=recovery') && !window.location.pathname.includes('/reset-password')) {
-      window.location.href = `/reset-password${hash}`;
+      // Navigate to reset-password without the hash in the pathname
+      // The hash will remain in the URL automatically
+      window.history.replaceState(null, '', '/reset-password' + hash);
+      window.location.reload();
     }
   }, []);
 
