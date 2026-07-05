@@ -609,7 +609,7 @@ export default function LoadDetail() {
                 (() => {
                   const sections: Array<{ label: string; entries: Array<{ entry: Entry; index: number }>; totalWeight: number }> = [];
                   ordered.forEach((e, i) => {
-                    const label = e.custom_field_2 || load.custom_field_2 || 'Others';
+                    const label = e.custom_field_2 || load.custom_field_2 || 'General';
                     let section = sections.find(s => s.label === label);
                     if (!section) {
                       section = { label, entries: [], totalWeight: 0 };

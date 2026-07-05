@@ -225,7 +225,7 @@ function buildReceiptNode(c: ShareCtx): HTMLDivElement {
   }> = [];
   if (customLabel2) {
     entries.forEach((e, i) => {
-      const label = e.custom_field_2 || load.custom_field_2 || "Others";
+      const label = e.custom_field_2 || load.custom_field_2 || "General";
       let section = label2Groups.find((s) => s.label === label);
       if (!section) {
         section = { label, entries: [], totalWeight: 0 };
@@ -264,9 +264,24 @@ function buildReceiptNode(c: ShareCtx): HTMLDivElement {
     </div>
   `;
 
+  // Summary card helper (dual values stacked vertically)
+  const summaryCardDual = (label1: string, value1: string, label2: string, value2: string) => `
+    <div style="background:${PAPER};border:2px solid ${LINE};border-radius:10px;padding:10px 14px;text-align:center;flex:1;display:flex;flex-direction:column;justify-content:space-between;min-height:110px;">
+      <div>
+        <div style="font-size:10px;color:${FAINT};text-transform:uppercase;letter-spacing:1px;font-weight:800;margin-bottom:2px;">${label1}</div>
+        <div style="font-size:16px;font-weight:900;color:${INK};line-height:1.1;">${value1}</div>
+      </div>
+      <div style="height:1px;background:${LINE};margin:4px 0;"></div>
+      <div>
+        <div style="font-size:10px;color:${FAINT};text-transform:uppercase;letter-spacing:1px;font-weight:800;margin-bottom:2px;">${label2}</div>
+        <div style="font-size:16px;font-weight:900;color:${INK};line-height:1.1;">${value2}</div>
+      </div>
+    </div>
+  `;
+
   // Summary card helper (dominant net weight)
   const summaryCardDominant = (label: string, value: string) => `
-    <div style="background:linear-gradient(135deg,${GREEN},${LIME});border-radius:12px;padding:14px 20px;text-align:center;">
+    <div style="background:linear-gradient(135deg,${GREEN},${LIME});border:2px solid ${GREEN};border-radius:12px;padding:10px 20px;text-align:center;display:flex;flex-direction:column;justify-content:center;min-height:110px;">
       <div style="font-size:11px;color:rgba(255,255,255,0.9);text-transform:uppercase;letter-spacing:1px;font-weight:800;margin-bottom:4px;">${label}</div>
       <div style="font-size:24px;font-weight:900;color:#fff;line-height:1.1;">${value}</div>
     </div>
@@ -287,11 +302,13 @@ function buildReceiptNode(c: ShareCtx): HTMLDivElement {
           .map(
             (section) => `
         <div style="margin-bottom:24px;">
-          <div style="background:${PAPER};padding:14px 18px;border-radius:12px;display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;min-height:52px;border:2px solid ${LINE};box-shadow:0 2px 4px rgba(0,0,0,0.05);">
-            <span style="font-size:18px;font-weight:900;color:${GREEN};">${label1Value ? `${esc(label1Value)} → ${esc(section.label)}` : esc(section.label)}</span>
-            <div style="display:flex;align-items:center;gap:10px;">
-              <span style="font-size:12px;font-weight:800;color:${SUB};background:${SOFT};padding:4px 10px;border-radius:16px;">${section.entries.length} ${section.entries.length === 1 ? "entry" : "entries"}</span>
-              <span style="font-size:20px;font-weight:900;color:${GREEN};">${section.totalWeight.toFixed(2)} kg</span>
+          <div style="padding:0 40px;margin-bottom:12px;">
+            <div style="background:${PAPER};padding:14px 18px;border-radius:12px;display:flex;justify-content:space-between;align-items:center;min-height:52px;border:2px solid ${LINE};box-shadow:0 2px 4px rgba(0,0,0,0.05);">
+              <span style="font-size:18px;font-weight:900;color:${GREEN};">${label1Value ? `${esc(label1Value)} → ${esc(section.label)}` : esc(section.label)}</span>
+              <div style="display:flex;align-items:center;gap:10px;">
+                <span style="font-size:12px;font-weight:800;color:${SUB};background:${SOFT};padding:4px 10px;border-radius:16px;">${section.entries.length} ${section.entries.length === 1 ? "entry" : "entries"}</span>
+                <span style="font-size:20px;font-weight:900;color:${GREEN};">${section.totalWeight.toFixed(2)} kg</span>
+              </div>
             </div>
           </div>
           <div style="padding:0 40px;display:grid;grid-template-columns:repeat(5,1fr);gap:10px;">
@@ -356,11 +373,9 @@ function buildReceiptNode(c: ShareCtx): HTMLDivElement {
     <!-- Summary Blocks -->
     <div style="padding:20px 30px;">
       <div style="display:flex;gap:10px;">
-        ${summaryCardSmall(totalVakkalLabel, totalVakkalValue)}
-        ${summaryCardSmall("Total Entries", String(entryCount))}
-        ${summaryCardSmall("Lowest", `${lowestWeight.toFixed(2)} kg`)}
-        ${summaryCardSmall("Highest", `${highestWeight.toFixed(2)} kg`)}
-        <div style="flex:1.2;">
+        ${summaryCardDual("Total Entries", String(entryCount), totalVakkalLabel, totalVakkalValue)}
+        ${summaryCardDual("Lowest", `${lowestWeight.toFixed(2)} kg`, "Highest", `${highestWeight.toFixed(2)} kg`)}
+        <div style="flex:1.5;">
           ${summaryCardDominant("Net Weight", `${net.toFixed(2)} kg`)}
         </div>
       </div>
@@ -375,6 +390,41 @@ function buildReceiptNode(c: ShareCtx): HTMLDivElement {
 
     <!-- Weight Sections -->
     ${weightSections}
+
+    <div style="height:2px;background:${LINE};margin:20px 30px;"></div>
+
+    <!-- Weight Calculation: Gross - Tare = Net -->
+    <div style="padding:0 30px 20px;">
+      <div style="font-size:11px;color:${FAINT};text-transform:uppercase;letter-spacing:1.5px;font-weight:800;text-align:center;margin-bottom:14px;">Weight Breakdown</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:12px;">
+        <!-- Gross -->
+        <div style="flex:1;background:${PAPER};border:2px solid ${LINE};border-radius:10px;padding:14px 10px;text-align:center;">
+          <div style="font-size:10px;color:${FAINT};text-transform:uppercase;letter-spacing:1px;font-weight:800;margin-bottom:6px;">Gross</div>
+          <div style="font-size:20px;font-weight:900;color:${INK};margin-bottom:2px;font-variant-numeric:tabular-nums;">${gross.toFixed(2)}</div>
+          <div style="font-size:10px;color:${SUB};font-weight:600;">kg</div>
+        </div>
+        <!-- Minus -->
+        <div style="width:32px;height:32px;background:${PAPER};border:1.5px solid ${LINE};border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <span style="font-size:18px;font-weight:900;color:${SUB};">−</span>
+        </div>
+        <!-- Tare -->
+        <div style="flex:1;background:${PAPER};border:2px solid ${LINE};border-radius:10px;padding:14px 10px;text-align:center;">
+          <div style="font-size:10px;color:${FAINT};text-transform:uppercase;letter-spacing:1px;font-weight:800;margin-bottom:6px;">Tare</div>
+          <div style="font-size:20px;font-weight:900;color:${INK};margin-bottom:2px;font-variant-numeric:tabular-nums;">${tare.toFixed(2)}</div>
+          <div style="font-size:10px;color:${SUB};font-weight:600;">kg</div>
+        </div>
+        <!-- Equals -->
+        <div style="width:32px;height:32px;background:${PAPER};border:1.5px solid ${LINE};border-radius:6px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <span style="font-size:18px;font-weight:900;color:${GREEN};">=</span>
+        </div>
+        <!-- Net -->
+        <div style="flex:1;background:linear-gradient(135deg,${GREEN},${LIME});border:2px solid ${GREEN};border-radius:10px;padding:14px 10px;text-align:center;">
+          <div style="font-size:10px;color:rgba(255,255,255,0.9);text-transform:uppercase;letter-spacing:1px;font-weight:800;margin-bottom:6px;">Net</div>
+          <div style="font-size:20px;font-weight:900;color:#fff;margin-bottom:2px;font-variant-numeric:tabular-nums;">${net.toFixed(2)}</div>
+          <div style="font-size:10px;color:rgba(255,255,255,0.85);font-weight:600;">kg</div>
+        </div>
+      </div>
+    </div>
 
     <!-- Footer - Nexus Weight branding -->
     <div style="padding:20px 30px 24px;text-align:center;border-top:2px solid ${LINE};">
@@ -1196,7 +1246,7 @@ async function buildPdfBlob(
         ? obj.custom_field_2
         : obj.custom_field_3;
   const entryFieldValue = (entry: Entry, n: CatalogFieldNumber) =>
-    fieldValue(entry, n) || fieldValue(load, n) || "Others";
+    fieldValue(entry, n) || fieldValue(load, n) || "General";
   const distinctValues = (n: CatalogFieldNumber) =>
     new Set(entries.map((e) => entryFieldValue(e, n)).filter(Boolean)).size;
 
