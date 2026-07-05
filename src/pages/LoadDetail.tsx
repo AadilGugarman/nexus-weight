@@ -309,21 +309,21 @@ export default function LoadDetail() {
       <div
         className="flex items-center justify-between gap-2 mb-4 rounded-2xl px-4 py-3"
         style={{
-          background: isFinalized ? "var(--accent-soft)" : "#f1f5f9",
-          border: isFinalized ? "2px solid var(--accent-deep)" : "2px solid #cbd5e1",
+          background: isFinalized ? "var(--accent-soft)" : "var(--surface-2)",
+          border: isFinalized ? "2px solid var(--accent-deep)" : "1px solid var(--border)",
         }}
       >
         <div className="flex items-center gap-2">
           {isFinalized ? (
             <Lock size={16} style={{ color: "var(--accent-deep)" }} />
           ) : (
-            <Pencil size={16} style={{ color: "#64748b" }} />
+            <Pencil size={16} style={{ color: "var(--text-muted)" }} />
           )}
           <div>
             <p
               className="text-sm font-black"
               style={{
-                color: isFinalized ? "var(--accent-deep)" : "#0f172a",
+                color: isFinalized ? "var(--accent-deep)" : "var(--text)",
               }}
             >
               {isFinalized ? "Finalized" : "Draft"}
@@ -345,14 +345,15 @@ export default function LoadDetail() {
         ) : (
           <button
             onClick={handleContinueWeighing}
-            className="shrink-0 flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition active:scale-95"
+            className="shrink-0 flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition active:scale-95 hover:brightness-110"
             style={{
-              background: "var(--surface)",
-              color: "var(--text)",
-              border: "1px solid var(--border-2)",
+              background: "var(--accent)",
+              color: "var(--accent-fg)",
+              border: "1px solid var(--accent-deep)",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
             }}
           >
-            <Scale size={14} /> Resume Weighing
+            <Scale size={14} /> Resume / Continue
           </button>
         )}
       </div>

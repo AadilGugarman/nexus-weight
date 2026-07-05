@@ -49,25 +49,25 @@ export default function FinalizeSheet({ open, onClose, entryCount, grossWeight, 
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <p className={lbl} style={{ color: 'var(--text-faint)' }}>Container Count</p>
+            <p className={lbl} style={{ color: 'var(--text-faint)' }}>Unit Count</p>
             <input inputMode="decimal" value={containerCount} placeholder={String(entryCount)}
               onChange={(e) => setContainerCount(e.target.value.replace(/[^0-9.]/g, ''))} className={input} />
           </div>
           <div>
-            <p className={lbl} style={{ color: 'var(--text-faint)' }}>Weight / Container (kg)</p>
+            <p className={lbl} style={{ color: 'var(--text-faint)' }}>Tare / Unit (g/KG)</p>
             <input inputMode="decimal" value={weightPerContainer} placeholder="e.g. 1"
               onChange={(e) => setWeightPerContainer(e.target.value.replace(/[^0-9.]/g, ''))} className={input} />
           </div>
         </div>
         <p className="text-[11px] -mt-2" style={{ color: 'var(--text-faint)' }}>
-          Auto-filled from {entryCount} entries — adjust if the actual container count differs.
+          Auto-filled from {entryCount} entries — adjust if the actual unit count differs.
         </p>
 
         {/* live summary */}
         <div className="rounded-2xl p-4 space-y-2" style={{ background: 'var(--surface-2)' }}>
           <SummaryRow label="Gross Weight" value={`${grossWeight.toFixed(2)} kg`} />
-          <SummaryRow label="Container Count" value={containerCount || '0'} />
-          <SummaryRow label="Weight / Container" value={`${weightPerContainer || '0'} kg`} />
+          <SummaryRow label="Unit Count" value={containerCount || '0'} />
+          <SummaryRow label="Tare / Unit" value={`${weightPerContainer || '0'} kg`} />
           <div className="h-px my-1" style={{ background: 'var(--border-2)' }} />
           <SummaryRow label="Total Tare" value={`${tare.toFixed(2)} kg`} />
           <SummaryRow label="Net Weight" value={`${net.toFixed(2)} kg`} accent />

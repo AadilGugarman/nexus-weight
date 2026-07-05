@@ -203,7 +203,7 @@ export default function Loads() {
                       <Lock size={10} /> Finalized
                     </span>
                   ) : (
-                    <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5 bg-slate-700 text-slate-400">
+                    <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5" style={{ background: '#3b82f6', color: '#ffffff' }}>
                       Draft
                     </span>
                   )}
