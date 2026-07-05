@@ -1,5 +1,10 @@
 import { currentThemeColors } from "./theme";
-import { canShareFile, shareBinaryFile, saveBinaryFile } from "./nativeShare";
+import {
+  canShareFile,
+  shareBinaryFile,
+  shareWhatsAppFile,
+  saveBinaryFile,
+} from "./nativeShare";
 import { isNative as isNativePlatform } from "./platform";
 import {
   getCompanyProfile,
@@ -480,22 +485,36 @@ export async function shareWhatsAppImage(c: ShareCtx) {
     const blob = await res.blob();
 
     if (isNativePlatform()) {
-      await shareBinaryFile({
+      await shareWhatsAppFile({
         filename,
         blob,
         mimeType: "image/png",
-        title: "Nexus Weight Receipt",
+        phone: c.party?.phone,
+        text: "Nexus Weight receipt image",
       });
       return;
     }
 
+    if (!whatsappWindow) {
+      throw new Error("Popup blocked - allow popups to open WhatsApp share.");
+    }
+    if (canShareFile(filename, "image/png")) {
+      const file = new File([blob], filename, { type: "image/png" });
+      try {
+        await navigator.share({
+          files: [file],
+          title: "Nexus Weight Receipt",
+        });
+        whatsappWindow.close();
+        return;
+      } catch {
+        // Keep the reserved popup and fall back to WhatsApp deep link below.
+      }
+    }
     triggerDownload(blob, filename);
     const text = encodeURIComponent(
       "Nexus Weight receipt image is ready. Attach the downloaded PNG in WhatsApp if it is not attached automatically.",
     );
-    if (!whatsappWindow) {
-      throw new Error("Popup blocked - allow popups to open WhatsApp share.");
-    }
     whatsappWindow.location.href = `https://wa.me/?text=${text}`;
   } catch (error) {
     if (whatsappWindow && !whatsappWindow.closed) whatsappWindow.close();
@@ -1677,11 +1696,12 @@ export async function exportPDF(c: ShareCtx) {
   }
 
   const { blob, filename } = await buildPdfBlob(c);
-  const result = await shareBinaryFile({
+  const result = await shareWhatsAppFile({
     filename,
     blob,
     mimeType: "application/pdf",
-    title: "Nexus Weight PDF",
+    phone: c.party?.phone,
+    text: "Nexus Weight PDF",
   });
   if (result === "downloaded") {
     throw new Error(

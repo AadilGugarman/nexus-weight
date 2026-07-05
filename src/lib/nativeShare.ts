@@ -1,6 +1,18 @@
 import { isNative } from './platform';
+import { registerPlugin } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
+
+interface WhatsAppSharePlugin {
+  share(opts: {
+    uri: string;
+    mimeType: string;
+    phone?: string;
+    text?: string;
+  }): Promise<void>;
+}
+
+const WhatsAppShare = registerPlugin<WhatsAppSharePlugin>('WhatsAppShare');
 
 /** Convert a Blob to a base64 string (no data: prefix). */
 function blobToBase64(blob: Blob): Promise<string> {
@@ -57,7 +69,7 @@ export async function shareBinaryFile(opts: {
     await Share.share({
       title: title || 'Nexus Weight',
       text: text || '',
-      url: write.uri, // content:// / file:// uri the share sheet can attach
+      files: [write.uri],
       dialogTitle: title || 'Share',
     });
     return 'shared';
@@ -84,6 +96,48 @@ export async function shareBinaryFile(opts: {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
   return 'downloaded';
+}
+
+export async function shareWhatsAppFile(opts: {
+  filename: string;
+  blob: Blob;
+  mimeType: string;
+  phone?: string | null;
+  text?: string;
+}): Promise<'shared' | 'downloaded'> {
+  const { filename, blob, mimeType, phone, text } = opts;
+  if (isNative()) {
+    const base64 = await blobToBase64(blob);
+    const write = await Filesystem.writeFile({
+      path: filename,
+      data: base64,
+      directory: Directory.Cache,
+    });
+    try {
+      await WhatsAppShare.share({
+        uri: write.uri,
+        mimeType,
+        phone: phone || undefined,
+        text: text || '',
+      });
+      return 'shared';
+    } catch {
+      await Share.share({
+        title: 'Nexus Weight',
+        text: text || '',
+        files: [write.uri],
+        dialogTitle: 'Share with WhatsApp',
+      });
+      return 'shared';
+    }
+  }
+  return shareBinaryFile({
+    filename,
+    blob,
+    mimeType,
+    title: 'Nexus Weight',
+    text,
+  });
 }
 
 /**

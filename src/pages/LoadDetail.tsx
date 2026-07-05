@@ -309,21 +309,21 @@ export default function LoadDetail() {
       <div
         className="flex items-center justify-between gap-2 mb-4 rounded-2xl px-4 py-3"
         style={{
-          background: isFinalized ? "var(--accent-soft)" : "var(--surface-2)",
-          border: "1px solid var(--border)",
+          background: isFinalized ? "var(--accent-soft)" : "#f1f5f9",
+          border: isFinalized ? "2px solid var(--accent-deep)" : "2px solid #cbd5e1",
         }}
       >
         <div className="flex items-center gap-2">
           {isFinalized ? (
             <Lock size={16} style={{ color: "var(--accent-deep)" }} />
           ) : (
-            <Pencil size={16} style={{ color: "var(--text-muted)" }} />
+            <Pencil size={16} style={{ color: "#64748b" }} />
           )}
           <div>
             <p
               className="text-sm font-black"
               style={{
-                color: isFinalized ? "var(--accent-deep)" : "var(--text)",
+                color: isFinalized ? "var(--accent-deep)" : "#0f172a",
               }}
             >
               {isFinalized ? "Finalized" : "Draft"}
