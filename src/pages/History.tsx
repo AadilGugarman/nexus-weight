@@ -240,7 +240,18 @@ export default function History() {
         </div>
       )}
 
-      {loading ? <div className="py-16 flex justify-center"><Loader2 className="animate-spin text-lime-400" size={28} /></div>
+      {loading ? <div className="space-y-1.5 pb-2">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="rounded-lg px-3 py-2.5 animate-pulse" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+            <div className="h-4 rounded" style={{ background: 'var(--surface-2)', width: '60%' }} />
+            <div className="h-3 rounded mt-2" style={{ background: 'var(--surface-2)', width: '40%' }} />
+            <div className="flex gap-2 mt-2">
+              <div className="h-5 rounded-full" style={{ background: 'var(--surface-2)', width: '80px' }} />
+              <div className="h-5 rounded-full" style={{ background: 'var(--surface-2)', width: '60px' }} />
+            </div>
+          </div>
+        ))}
+      </div>
         : err ? <p className="text-red-400 text-center py-8">{err}</p>
         : result.rows.length === 0 ? <div className="text-center py-16 text-slate-600"><Package size={40} className="mx-auto mb-3" />No records found.</div>
         : (

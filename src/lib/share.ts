@@ -1,4 +1,3 @@
-import { toPng } from "html-to-image";
 import { currentThemeColors } from "./theme";
 import { canShareFile, shareBinaryFile, saveBinaryFile } from "./nativeShare";
 import { isNative as isNativePlatform } from "./platform";
@@ -383,6 +382,9 @@ function buildReceiptNode(c: ShareCtx): HTMLDivElement {
 }
 
 async function renderReceiptPng(c: ShareCtx): Promise<string> {
+  // Lazy load html-to-image only when needed (reduces initial bundle)
+  const { toPng } = await import("html-to-image");
+  
   const node = buildReceiptNode(c);
   document.body.appendChild(node);
   try {
