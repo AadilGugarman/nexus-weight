@@ -12,15 +12,17 @@ function todayISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-export default function LoadPicker({ onClose, onPick }: { onClose: () => void; onPick: (l: Load) => void }) {
-  const { parties, addLoad, addParty, customLabel1, customLabel2, customLabel3 } = useStore();
-  const [label, setLabel] = useState('');
-  const [partyId, setPartyId] = useState('');
-  const [customField1, setCustomField1] = useState('');
-  const [customField2, setCustomField2] = useState('');
-  const [customField3, setCustomField3] = useState('');
-  const [date, setDate] = useState(todayISO());
-  const [movementType, setMovementType] = useState<MovementType>('outward');
+export default function LoadPicker({ onClose, onPick, editLoad }: { onClose: () => void; onPick: (l: Load) => void; editLoad?: Load | null }) {
+  const { parties, addLoad, updateLoad, addParty, customLabel1, customLabel2, customLabel3, recentVehicles } = useStore();
+  const isEditing = !!editLoad;
+  
+  const [label, setLabel] = useState(editLoad?.label || '');
+  const [partyId, setPartyId] = useState(editLoad?.party_id || '');
+  const [customField1, setCustomField1] = useState(editLoad?.custom_field_1 || '');
+  const [customField2, setCustomField2] = useState(editLoad?.custom_field_2 || '');
+  const [customField3, setCustomField3] = useState(editLoad?.custom_field_3 || '');
+  const [date, setDate] = useState(editLoad?.created_at ? editLoad.created_at.split('T')[0] : todayISO());
+  const [movementType, setMovementType] = useState<MovementType>(editLoad?.movement_type || 'outward');
   const [busy, setBusy] = useState(false);
   const [touched, setTouched] = useState(false);
 
@@ -57,17 +59,35 @@ export default function LoadPicker({ onClose, onPick }: { onClose: () => void; o
     setBusy(true);
     const chosen = date ? new Date(`${date}T${new Date().toTimeString().slice(0, 8)}`) : new Date();
     const vehicle = label.trim() ? (vehicleCheck.normalized || formatVehicleNumber(label)) : 'NO-VEHICLE';
-    const load = await addLoad({
-      label: vehicle,
-      party_id: partyId || null,
-      movement_type: movementType,
-      custom_field_1: customLabel1 ? customField1.trim() || null : null,
-      custom_field_2: customLabel2 ? customField2.trim() || null : null,
-      custom_field_3: customLabel3 ? customField3.trim() || null : null,
-      created_at: chosen.toISOString(),
-    });
-    setBusy(false);
-    onPick(load);
+    
+    if (isEditing && editLoad) {
+      // Update existing load
+      await updateLoad({
+        id: editLoad.id,
+        label: vehicle,
+        party_id: partyId || null,
+        movement_type: movementType,
+        custom_field_1: customLabel1 ? customField1.trim() || null : null,
+        custom_field_2: customLabel2 ? customField2.trim() || null : null,
+        custom_field_3: customLabel3 ? customField3.trim() || null : null,
+      });
+      const updatedLoad = { ...editLoad, label: vehicle, party_id: partyId || null, movement_type: movementType, custom_field_1: customLabel1 ? customField1.trim() || null : null, custom_field_2: customLabel2 ? customField2.trim() || null : null, custom_field_3: customLabel3 ? customField3.trim() || null : null };
+      setBusy(false);
+      onPick(updatedLoad as Load);
+    } else {
+      // Create new load
+      const load = await addLoad({
+        label: vehicle,
+        party_id: partyId || null,
+        movement_type: movementType,
+        custom_field_1: customLabel1 ? customField1.trim() || null : null,
+        custom_field_2: customLabel2 ? customField2.trim() || null : null,
+        custom_field_3: customLabel3 ? customField3.trim() || null : null,
+        created_at: chosen.toISOString(),
+      });
+      setBusy(false);
+      onPick(load);
+    }
   };
 
   const lbl = 'text-[11px] text-slate-500 font-semibold uppercase tracking-wider mb-1.5 flex items-center gap-1.5';
@@ -77,7 +97,7 @@ export default function LoadPicker({ onClose, onPick }: { onClose: () => void; o
     <div className="fixed inset-0 z-40 bg-black/70 flex items-end sm:items-center justify-center p-0 sm:p-4">
       <div className="bg-slate-900 border border-slate-800 w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 max-h-[92vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-black">New Load</h2>
+          <h2 className="text-lg font-black">{isEditing ? 'Edit Load' : 'New Load'}</h2>
           <button aria-label="Close" onClick={onClose} className="p-1 text-slate-400 hover:text-white"><X size={22} /></button>
         </div>
         <form onSubmit={create} className="space-y-4">
@@ -104,6 +124,21 @@ export default function LoadPicker({ onClose, onPick }: { onClose: () => void; o
                 onBlur={() => setTouched(true)}
                 className={`${input} uppercase ${showVehicleError ? 'border-red-500 focus:border-red-500' : ''}`}
               />
+              {/* Recent vehicle suggestions */}
+              {!isEditing && recentVehicles.length > 0 && !label.trim() && (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {recentVehicles.slice(0, 3).map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => setLabel(v)}
+                      className="text-[10px] font-bold px-2 py-1 rounded-md bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-lime-400 transition"
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             <div>
               <label className={lbl}><CalendarDays size={13} className="text-lime-500" /> Date</label>
@@ -169,7 +204,7 @@ export default function LoadPicker({ onClose, onPick }: { onClose: () => void; o
           )}
 
           <button type="submit" disabled={busy || !canSubmit} className="w-full bg-lime-500 text-slate-950 font-black rounded-xl py-3.5 hover:bg-lime-400 active:scale-95 transition flex items-center justify-center gap-2 disabled:opacity-50">
-            <Plus size={18} /> Create &amp; Start Weighing
+            <Plus size={18} /> {isEditing ? 'Save Changes' : 'Create & Start Weighing'}
           </button>
         </form>
       </div>

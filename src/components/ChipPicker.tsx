@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Plus, Check, X } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { findCatalogValueId, linkedChildren } from '../lib/catalogLinks';
+import { findCatalogValueId, explicitLinkedChildren } from '../lib/catalogLinks';
 import type { CatalogFieldNumber } from '../types';
 
 interface Props {
@@ -39,7 +39,8 @@ export default function ChipPicker({ fieldNumber, value, onChange, placeholder, 
 
   const options = useMemo(() => {
     if (!isChild) return catalogValues.filter((v) => !v.is_deleted && v.field_number === fieldNumber).sort((a, b) => a.value.localeCompare(b.value));
-    return linkedChildren(catalogValues, catalogValueLinks, parentId, fieldNumber);
+    // Use explicitLinkedChildren to only show values that are actually linked (no fallback to all values)
+    return explicitLinkedChildren(catalogValues, catalogValueLinks, parentId, fieldNumber);
   }, [catalogValues, catalogValueLinks, fieldNumber, isChild, parentId]);
 
   const needsParentFirst = isChild && !parentValue?.trim();

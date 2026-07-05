@@ -129,7 +129,7 @@ export default function Dropdown({
       <div
         ref={wrapRef}
         onClick={openField}
-        className={`w-full flex items-center gap-2 bg-slate-800 border rounded-xl text-left outline-none transition cursor-text ${compact ? 'px-2.5 h-9 text-xs' : 'px-3 h-11'} ${open ? 'border-lime-500 ring-2 ring-lime-500/20' : 'border-slate-700'} ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-slate-600'} ${className}`}
+        className={`w-full flex items-center gap-2 bg-slate-800 border rounded-xl text-left outline-none transition cursor-text ${compact ? 'px-2.5 h-9 text-xs' : 'px-3 h-10'} ${open ? 'border-lime-500 ring-2 ring-lime-500/20' : 'border-slate-700'} ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:border-slate-600'} ${className}`}
       >
         {icon}
         {searchable !== false ? (

@@ -32,7 +32,8 @@ import { resolveLinkedChain } from "../lib/catalogLinks";
 import FinalizeSheet from "../components/FinalizeSheet";
 import ShareSheet, { type ShareAction } from "../components/ShareSheet";
 import NestedBreakdown from "../components/NestedBreakdown";
-import type { Entry, CatalogFieldNumber } from "../types";
+import LoadPicker from "../components/LoadPicker";
+import type { Entry, CatalogFieldNumber, Load } from "../types";
 
 export default function LoadDetail() {
   const { id } = useParams();
@@ -55,6 +56,7 @@ export default function LoadDetail() {
   const [finalizeSheetOpen, setFinalizeSheetOpen] = useState(false);
   const [shareSheetOpen, setShareSheetOpen] = useState(false);
   const [unlockConfirmOpen, setUnlockConfirmOpen] = useState(false);
+  const [editPickerOpen, setEditPickerOpen] = useState(false);
 
   const load = loads.find((l) => l.id === id);
   const party = parties.find((p) => p.id === load?.party_id);
@@ -131,6 +133,13 @@ export default function LoadDetail() {
     show("Load reopened for editing");
   };
 
+  const handleContinueWeighing = () => {
+    // Set the active load in the store
+    setActiveLoad(load.id);
+    // Navigate to Entry page
+    navigate("/");
+  };
+
   const run = async (
     key: string,
     fn: () => Promise<void> | void,
@@ -166,7 +175,10 @@ export default function LoadDetail() {
   const handleUnlock = async () => {
     setUnlockConfirmOpen(false);
     await updateLoad({ id: load.id, status: "draft" });
-    show("Load unlocked for editing");
+    // Set the active load and navigate to Entry page
+    setActiveLoad(load.id);
+    navigate("/");
+    show("Load reopened for editing");
   };
 
   const createdAt = load.created_at ? new Date(load.created_at) : new Date();
@@ -251,8 +263,8 @@ export default function LoadDetail() {
 
   return (
     <div className="pb-6">
-      {/* ===== Header row: Back only — export actions moved into Share Load ===== */}
-      <div className="mb-5">
+      {/* ===== Header row: Back + (Draft only) Edit icon + Finalize ===== */}
+      <div className="mb-5 flex items-center justify-between gap-2">
         <button
           onClick={() => navigate(-1)}
           className="flex items-center gap-1.5 font-semibold text-sm rounded-xl px-3 py-2 transition active:scale-95"
@@ -264,8 +276,35 @@ export default function LoadDetail() {
         >
           <ArrowLeft size={18} /> Back
         </button>
+        
+        {!isFinalized && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setEditPickerOpen(true)}
+              className="flex items-center justify-center w-10 h-10 rounded-xl transition active:scale-95"
+              style={{
+                color: "var(--text-muted)",
+                background: "var(--surface)",
+                border: "1px solid var(--border)",
+              }}
+              aria-label="Edit load details"
+            >
+              <Pencil size={18} />
+            </button>
+            <button
+              onClick={() => setFinalizeSheetOpen(true)}
+              className="flex items-center gap-1.5 font-semibold text-sm rounded-xl px-3 py-2 transition active:scale-95"
+              style={{
+                color: "var(--accent-fg)",
+                background: "var(--accent)",
+                border: "1px solid var(--accent)",
+              }}
+            >
+              <ShieldCheck size={18} /> Finalize
+            </button>
+          </div>
+        )}
       </div>
-
       {/* ===== Status bar: Draft/Finalized + (finalized only) the explicit unlock action ===== */}
       <div
         className="flex items-center justify-between gap-2 mb-4 rounded-2xl px-4 py-3"
@@ -289,14 +328,11 @@ export default function LoadDetail() {
             >
               {isFinalized ? "Finalized" : "Draft"}
             </p>
-            <p className="text-[11px]" style={{ color: "var(--text-faint)" }}>
-              {!isFinalized && "Entries can be added, edited, and deleted."}
-            </p>
           </div>
         </div>
-        {isFinalized && (
+        {isFinalized ? (
           <button
-            onClick={handleEditReopen}
+            onClick={() => setUnlockConfirmOpen(true)}
             className="shrink-0 flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition active:scale-95"
             style={{
               background: "var(--surface)",
@@ -306,11 +342,23 @@ export default function LoadDetail() {
           >
             <Pencil size={14} /> Edit / Reopen
           </button>
+        ) : (
+          <button
+            onClick={handleContinueWeighing}
+            className="shrink-0 flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold transition active:scale-95"
+            style={{
+              background: "var(--surface)",
+              color: "var(--text)",
+              border: "1px solid var(--border-2)",
+            }}
+          >
+            <Scale size={14} /> Resume Weighing
+          </button>
         )}
       </div>
 
-      {/* ===== Primary CTA: mobile-first, one big obvious action per state ===== */}
-      {isFinalized ? (
+      {/* ===== Primary CTA: Share Load for finalized loads ===== */}
+      {isFinalized && (
         <button
           onClick={() => setShareSheetOpen(true)}
           className="w-full flex items-center justify-center gap-2 rounded-2xl py-4 mb-5 text-base font-black transition active:scale-95"
@@ -318,15 +366,8 @@ export default function LoadDetail() {
         >
           <Share2 size={20} /> Share Load
         </button>
-      ) : (
-        <button
-          onClick={() => setFinalizeSheetOpen(true)}
-          className="w-full flex items-center justify-center gap-2 rounded-2xl py-4 mb-5 text-base font-black transition active:scale-95"
-          style={{ background: "var(--accent)", color: "var(--accent-fg)" }}
-        >
-          <ShieldCheck size={20} /> Finalize Load
-        </button>
       )}
+
 
       {/* ===== Mobile-Friendly Industrial Dashboard ===== */}
       <div
@@ -835,6 +876,17 @@ export default function LoadDetail() {
         onClose={() => setShareSheetOpen(false)}
         actions={shareActions}
       />
+
+      {editPickerOpen && (
+        <LoadPicker
+          onClose={() => setEditPickerOpen(false)}
+          onPick={(updatedLoad: Load) => {
+            setEditPickerOpen(false);
+            show("Load details updated");
+          }}
+          editLoad={load}
+        />
+      )}
 
       {unlockConfirmOpen && (
         <div

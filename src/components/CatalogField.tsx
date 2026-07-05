@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import Dropdown from './Dropdown';
 import { useStore } from '../store/useStore';
-import { findCatalogValueId, linkedChildren } from '../lib/catalogLinks';
+import { findCatalogValueId, explicitLinkedChildren } from '../lib/catalogLinks';
 import type { CatalogFieldNumber } from '../types';
 
 interface Props {
@@ -46,7 +46,8 @@ export default function CatalogField({ fieldNumber, value, onChange, placeholder
 
   const options = useMemo(() => {
     if (!isChild) return catalogValues.filter((v) => !v.is_deleted && v.field_number === fieldNumber).map((v) => ({ value: v.value, label: v.value }));
-    return linkedChildren(catalogValues, catalogValueLinks, parentId, fieldNumber).map((v) => ({ value: v.value, label: v.value }));
+    // Use explicitLinkedChildren to only show values that are actually linked (no fallback to all values)
+    return explicitLinkedChildren(catalogValues, catalogValueLinks, parentId, fieldNumber).map((v) => ({ value: v.value, label: v.value }));
   }, [catalogValues, catalogValueLinks, fieldNumber, isChild, parentId]);
 
   const needsParentFirst = isChild && !parentValue?.trim();

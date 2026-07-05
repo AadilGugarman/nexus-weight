@@ -21,13 +21,16 @@ interface AppState {
   customLabel3: string | null;
   activeLoadId: string | null;
   recentWeights: number[];
+  recentVehicles: string[];
   setOnline: (v: boolean) => void;
   refreshPending: () => Promise<void>;
   setUser: (id: string | null) => void;
   loadAll: () => Promise<void>;
   setActiveLoad: (id: string | null) => void;
   loadEntries: (loadId: string) => Promise<void>;
+  syncEntryLabelsToCatalog: (entries: Entry[]) => Promise<void>;
   pushRecent: (w: number) => void;
+  pushRecentVehicle: (vehicle: string) => void;
   // company profile & business labels — saved together via an explicit Save action
   updateBusinessConfig: (cfg: { companyName: string; customLabel1: string; customLabel2: string; customLabel3: string }) => Promise<void>;
   // party
@@ -73,6 +76,7 @@ export const useStore = create<AppState>((set, get) => ({
   customLabel3: null,
   activeLoadId: null,
   recentWeights: (JSON.parse(localStorage.getItem('recentWeights') || '[]') as number[]).slice(0, 10),
+  recentVehicles: (JSON.parse(localStorage.getItem('recentVehicles') || '[]') as string[]).slice(0, 10),
 
   setOnline: (v) => set({ online: v }),
   refreshPending: async () => set({ pending: await pendingCount(), dead: await deadCount() }),
@@ -84,6 +88,15 @@ export const useStore = create<AppState>((set, get) => ({
     const next = [w, ...cur].slice(0, 10);
     localStorage.setItem('recentWeights', JSON.stringify(next));
     set({ recentWeights: next });
+  },
+
+  pushRecentVehicle: (vehicle) => {
+    const normalized = vehicle.trim().toUpperCase();
+    if (!normalized || normalized === 'NO-VEHICLE') return;
+    const cur = get().recentVehicles.filter((x) => x !== normalized);
+    const next = [normalized, ...cur].slice(0, 10);
+    localStorage.setItem('recentVehicles', JSON.stringify(next));
+    set({ recentVehicles: next });
   },
 
   // Explicit save (triggered by the Business Configuration "Save" button) —
@@ -151,14 +164,84 @@ export const useStore = create<AppState>((set, get) => ({
     const cached = await db.entries.where('load_id').equals(loadId).filter((x) => !x.is_deleted).toArray();
     cached.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
     set({ entries: cached });
+    
+    // Auto-add labels from entries to catalog
+    await get().syncEntryLabelsToCatalog(cached);
+    
     if (!navigator.onLine) return;
     try {
       const remote = await apiGet<Entry[]>(`entries?load_id=${loadId}`);
       await db.entries.bulkPut(remote);
       set({ entries: remote });
+      
+      // Auto-add labels from remote entries to catalog
+      await get().syncEntryLabelsToCatalog(remote);
     } catch (e) {
       if (!(e instanceof AuthError)) console.warn('loadEntries: using cached data', e);
     }
+  },
+
+  syncEntryLabelsToCatalog: async (entries) => {
+    const catalogValues = get().catalogValues;
+    const userId = get().userId;
+    if (!userId) return;
+
+    // Helper to check if a value already exists in catalog
+    const valueExists = (fieldNumber: CatalogFieldNumber, value: string) => {
+      const needle = value.trim().toLowerCase();
+      return catalogValues.some(
+        (v) => !v.is_deleted && 
+        v.field_number === fieldNumber && 
+        v.value.trim().toLowerCase() === needle
+      );
+    };
+
+    // Helper to add value to catalog without parent link (untracked)
+    const addUntracked = async (fieldNumber: CatalogFieldNumber, value: string) => {
+      if (!value?.trim() || valueExists(fieldNumber, value)) return;
+      
+      const rec: CatalogValue = {
+        id: uuid(),
+        user_id: userId,
+        field_number: fieldNumber,
+        value: value.trim(),
+        is_deleted: false,
+        created_at: new Date().toISOString(),
+      };
+      
+      await db.catalogValues.put(rec);
+      set({ catalogValues: [...get().catalogValues, rec].sort((a, b) => a.value.localeCompare(b.value)) });
+      await enqueue('catalog_values', 'create', { 
+        id: rec.id, 
+        field_number: rec.field_number, 
+        value: rec.value 
+      });
+    };
+
+    // Process all entries
+    for (const entry of entries) {
+      // Label 1 (custom_field_1): Add to catalog (tracked, can have children)
+      if (entry.custom_field_1?.trim()) {
+        const label1Value = entry.custom_field_1.trim();
+        if (!valueExists(1, label1Value)) {
+          await addUntracked(1, label1Value);
+        }
+      }
+
+      // Label 2 (custom_field_2): Add as untracked
+      if (entry.custom_field_2?.trim()) {
+        const label2Value = entry.custom_field_2.trim();
+        await addUntracked(2, label2Value);
+      }
+
+      // Label 3 (custom_field_3): Add as untracked
+      if (entry.custom_field_3?.trim()) {
+        const label3Value = entry.custom_field_3.trim();
+        await addUntracked(3, label3Value);
+      }
+    }
+
+    await get().refreshPending();
   },
 
   addParty: async (p) => {
@@ -259,6 +342,8 @@ export const useStore = create<AppState>((set, get) => ({
     set({ loads: [rec, ...get().loads] });
     await enqueue('loads', 'create', { id: rec.id, party_id: rec.party_id, label: rec.label, created_at: rec.created_at, movement_type: rec.movement_type, custom_field_1: rec.custom_field_1, custom_field_2: rec.custom_field_2, custom_field_3: rec.custom_field_3, container_count: rec.container_count, weight_per_container: rec.weight_per_container, status: rec.status });
     await get().refreshPending();
+    // Track vehicle number for suggestions
+    if (rec.label) get().pushRecentVehicle(rec.label);
     return rec;
   },
   updateLoad: async (l) => {

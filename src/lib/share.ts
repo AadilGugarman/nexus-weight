@@ -1,6 +1,6 @@
 import { toPng } from "html-to-image";
 import { currentThemeColors } from "./theme";
-import { shareBinaryFile, saveBinaryFile } from "./nativeShare";
+import { canShareFile, shareBinaryFile, saveBinaryFile } from "./nativeShare";
 import { isNative as isNativePlatform } from "./platform";
 import {
   getCompanyProfile,
@@ -38,8 +38,48 @@ export interface ShareCtx {
   party?: Party;
 }
 
-// inline weight/scale icon (white), used inside the receipt logo badge
-const WEIGHT_ICON = `<svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1.5"/><path d="M4 8h16"/><path d="M4 8l-2.5 6a4 4 0 0 0 5 0z"/><path d="M20 8l-2.5 6a4 4 0 0 0 5 0z"/><path d="M8 21h8"/><path d="M12 8v13"/></svg>`;
+/** Generate filename from party name, location, date, and vehicle.
+ * Format: PartyName_Location_Date_VehicleNumber_Timestamp (omit location/vehicle if not present)
+ * Example: JAYESH_MUMBAI_05Jan2026_MH12AB1234_143025 */
+function generateFilename(ctx: ShareCtx, extension: string): string {
+  const { load, party } = ctx;
+  const parts: string[] = [];
+  
+  // Party name (required)
+  if (party?.name) {
+    parts.push(party.name.replace(/[^a-zA-Z0-9]/g, ""));
+  }
+  
+  // Location (if party has place)
+  if (party?.place) {
+    parts.push(party.place.replace(/[^a-zA-Z0-9]/g, ""));
+  }
+  
+  // Date in DDMmmYYYY format (no hyphens)
+  const date = new Date(load.created_at || Date.now());
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = date.toLocaleDateString("en-IN", { month: "short" });
+  const year = date.getFullYear();
+  const dateStr = `${day}${month}${year}`;
+  parts.push(dateStr);
+  
+  // Vehicle number (skip if NO-VEHICLE)
+  if (load.label && load.label !== "NO-VEHICLE") {
+    parts.push(load.label.replace(/\s+/g, ""));
+  }
+  
+  // Add timestamp (HHMMSS) to ensure uniqueness
+  const now = new Date();
+  const time = `${String(now.getHours()).padStart(2, "0")}${String(now.getMinutes()).padStart(2, "0")}${String(now.getSeconds()).padStart(2, "0")}`;
+  parts.push(time);
+  
+  // Fallback to nexus-LoadLabel if no party
+  if (parts.length === 1 || !party?.name) { // only timestamp added, no party
+    return `nexus-${load.label.replace(/\s+/g, "-")}-${time}${extension}`;
+  }
+  
+  return `${parts.join("_")}${extension}`;
+}
 
 function fmtDate(d?: string) {
   return new Date(d || Date.now()).toLocaleDateString("en-IN", {
@@ -136,7 +176,7 @@ function buildReceiptNode(c: ShareCtx): HTMLDivElement {
     lowestWeight,
     highestWeight,
   } = computeLoadStats(load, entries);
-  const { customLabel1, customLabel2 } = getBusinessLabels();
+  const { customLabel2 } = getBusinessLabels();
   const { GREEN, LIME } = accents();
   const company = getCompanyProfile();
 
@@ -195,9 +235,23 @@ function buildReceiptNode(c: ShareCtx): HTMLDivElement {
 
   // Get label1 and label2 values for header
   const label1Value = load.custom_field_1 || "";
+  const label2ValuesCommaSeparated =
+    label2Groups.length > 0
+      ? label2Groups.map((g) => g.label).join(", ")
+      : load.custom_field_2 || "";
   const label2Value =
     load.custom_field_2 ||
     (label2Groups.length > 0 ? label2Groups[0].label : "");
+
+  // Get Total Vakkal/Label2 value
+  const totalVakkalValue = customLabel2
+    ? String(label2Groups.length)
+    : load.container_count != null && Number(load.container_count) > 0
+      ? String(Number(load.container_count))
+      : "-";
+  const totalVakkalLabel = customLabel2
+    ? `Total ${customLabel2}`
+    : "Total Vakkla";
 
   // Summary card helper (small, one row)
   const summaryCardSmall = (label: string, value: string) => `
@@ -231,9 +285,11 @@ function buildReceiptNode(c: ShareCtx): HTMLDivElement {
             (section) => `
         <div style="margin-bottom:24px;">
           <div style="background:${PAPER};padding:14px 18px;border-radius:12px;display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;min-height:52px;border:2px solid ${LINE};box-shadow:0 2px 4px rgba(0,0,0,0.05);">
-            <span style="font-size:18px;font-weight:900;color:${GREEN};">${esc(section.label)}</span>
-            <span style="font-size:12px;font-weight:800;color:${SUB};background:${SOFT};padding:4px 10px;border-radius:16px;">${section.entries.length} ${section.entries.length === 1 ? "entry" : "entries"}</span>
-            <span style="font-size:20px;font-weight:900;color:${GREEN};">${section.totalWeight.toFixed(2)} kg</span>
+            <span style="font-size:18px;font-weight:900;color:${GREEN};">${label1Value ? `${esc(label1Value)} → ${esc(section.label)}` : esc(section.label)}</span>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span style="font-size:12px;font-weight:800;color:${SUB};background:${SOFT};padding:4px 10px;border-radius:16px;">${section.entries.length} ${section.entries.length === 1 ? "entry" : "entries"}</span>
+              <span style="font-size:20px;font-weight:900;color:${GREEN};">${section.totalWeight.toFixed(2)} kg</span>
+            </div>
           </div>
           <div style="padding:0 40px;display:grid;grid-template-columns:repeat(5,1fr);gap:10px;">
             ${section.entries.map(({ entry: e, index }) => weightCard(index, Number(e.weight).toFixed(2))).join("")}
@@ -253,17 +309,17 @@ function buildReceiptNode(c: ShareCtx): HTMLDivElement {
         <div style="flex:1;">
           ${company.companyName ? `<div style="font-size:26px;font-weight:900;color:#fff;margin-bottom:6px;line-height:1.1;">${esc(company.companyName)}</div>` : ""}
           ${party ? `<div style="font-size:18px;font-weight:700;color:#cbd5e1;margin-bottom:8px;">${esc(party.name)}</div>` : ""}
-          <div style="display:inline-block;background:${GREEN};color:#fff;padding:6px 14px;border-radius:20px;font-size:14px;font-weight:800;">${esc(load.label)}</div>
+          <div style="display:inline-block;background:${GREEN};color:#fff;padding:6px 14px;border-radius:0;font-size:14px;font-weight:800;">${esc(load.label)}</div>
           ${
             label1Value
               ? `
             <div style="margin-top:8px;display:flex;align-items:center;gap:6px;">
-              <div style="display:inline-block;background:rgba(255,255,255,0.1);color:#fff;padding:6px 12px;border-radius:16px;font-size:13px;font-weight:700;">${esc(label1Value)}</div>
+              <div style="display:inline-block;background:rgba(255,255,255,0.1);color:#fff;padding:6px 12px;border-radius:0;font-size:13px;font-weight:700;">${esc(label1Value)}</div>
               ${
-                label2Value
+                label2ValuesCommaSeparated
                   ? `
                 <span style="color:#cbd5e1;font-size:16px;">→</span>
-                <div style="display:inline-block;background:rgba(255,255,255,0.15);color:#fff;padding:6px 12px;border-radius:16px;font-size:13px;font-weight:700;">${esc(label2Value)}</div>
+                <div style="display:inline-block;background:rgba(255,255,255,0.15);color:#fff;padding:6px 12px;border-radius:0;font-size:13px;font-weight:700;">${esc(label2ValuesCommaSeparated)}</div>
               `
                   : ""
               }
@@ -282,7 +338,10 @@ function buildReceiptNode(c: ShareCtx): HTMLDivElement {
             firstEntryAt
               ? `
             <div style="font-size:13px;color:#cbd5e1;font-weight:600;">
-              ${fmtTime(firstEntryAt)} - ${fmtTime(lastEntryAt)} · ${duration}
+              ${fmtTime(firstEntryAt)} - ${fmtTime(lastEntryAt)}
+            </div>
+            <div style="font-size:12px;color:#cbd5e1;font-weight:600;margin-top:2px;">
+              ${duration}
             </div>
           `
               : ""
@@ -293,73 +352,26 @@ function buildReceiptNode(c: ShareCtx): HTMLDivElement {
 
     <!-- Summary Blocks -->
     <div style="padding:20px 30px;">
-      <!-- First row: all small metrics -->
-      <div style="display:flex;gap:10px;margin-bottom:12px;">
+      <div style="display:flex;gap:10px;">
+        ${summaryCardSmall(totalVakkalLabel, totalVakkalValue)}
         ${summaryCardSmall("Total Entries", String(entryCount))}
         ${summaryCardSmall("Lowest", `${lowestWeight.toFixed(2)} kg`)}
         ${summaryCardSmall("Highest", `${highestWeight.toFixed(2)} kg`)}
-      </div>
-      <!-- Second row: dominant net weight -->
-      <div style="margin-top:4px;">
-        ${summaryCardDominant("Net Weight", `${net.toFixed(2)} kg`)}
+        <div style="flex:1.2;">
+          ${summaryCardDominant("Net Weight", `${net.toFixed(2)} kg`)}
+        </div>
       </div>
     </div>
 
     <div style="height:1px;background:${LINE};margin:0 30px 20px;"></div>
 
-    <!-- Custom Business Fields -->
-    ${
-      customFieldLines(load).length
-        ? `
-    <div style="padding:0 30px 20px;">
-      <div style="display:grid;grid-template-columns:repeat(${customFieldLines(load).length},1fr);gap:12px;">
-        ${customFieldLines(load)
-          .map(
-            (f) => `
-          <div style="background:${SOFT};border-radius:10px;padding:10px 14px;text-align:center;">
-            <div style="font-size:10px;color:${FAINT};text-transform:uppercase;letter-spacing:1px;font-weight:800;margin-bottom:2px;">${f.label}</div>
-            <div style="font-size:14px;font-weight:900;color:${GREEN};">${esc(f.value)}</div>
-          </div>
-        `,
-          )
-          .join("")}
-      </div>
-    </div>
-    `
-        : ""
-    }
+
 
     <!-- Weight Entries Header -->
     <div style="padding:0 40px 12px;font-size:12px;color:${SUB};font-weight:800;text-transform:uppercase;letter-spacing:1.5px;">Weight Entries (${entryCount})</div>
 
     <!-- Weight Sections -->
     ${weightSections}
-
-    <div style="height:1px;background:${LINE};margin:24px 30px 20px;"></div>
-
-    <!-- Weight Calculation -->
-    <div style="padding:0 30px 24px;">
-      <div style="font-size:12px;color:${SUB};font-weight:800;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px;">Weight Calculation</div>
-      <div style="display:flex;align-items:center;justify-center;gap:12px;">
-        <div style="background:${SOFT};border-radius:12px;padding:14px 20px;text-align:center;flex:1;">
-          <div style="font-size:11px;color:${SUB};text-transform:uppercase;letter-spacing:1px;font-weight:800;">Gross</div>
-          <div style="font-size:22px;font-weight:900;color:${INK};margin-top:4px;">${gross.toFixed(2)}</div>
-          <div style="font-size:12px;color:${FAINT};margin-top:2px;">kg</div>
-        </div>
-        <div style="font-size:28px;font-weight:900;color:${SUB};">−</div>
-        <div style="background:${SOFT};border-radius:12px;padding:14px 20px;text-align:center;flex:1;">
-          <div style="font-size:11px;color:${SUB};text-transform:uppercase;letter-spacing:1px;font-weight:800;">Tare</div>
-          <div style="font-size:22px;font-weight:900;color:${INK};margin-top:4px;">${tare.toFixed(2)}</div>
-          <div style="font-size:12px;color:${FAINT};margin-top:2px;">kg</div>
-        </div>
-        <div style="font-size:28px;font-weight:900;color:${GREEN};">=</div>
-        <div style="background:linear-gradient(135deg,${GREEN},${LIME});border-radius:12px;padding:14px 20px;text-align:center;flex:1;">
-          <div style="font-size:11px;color:rgba(255,255,255,0.9);text-transform:uppercase;letter-spacing:1px;font-weight:800;">Net</div>
-          <div style="font-size:22px;font-weight:900;color:#fff;margin-top:4px;">${net.toFixed(2)}</div>
-          <div style="font-size:12px;color:rgba(255,255,255,0.85);margin-top:2px;">kg</div>
-        </div>
-      </div>
-    </div>
 
     <!-- Footer - Nexus Weight branding -->
     <div style="padding:20px 30px 24px;text-align:center;border-top:2px solid ${LINE};">
@@ -383,8 +395,8 @@ async function renderReceiptPng(c: ShareCtx): Promise<string> {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
             // Force style recalculation by reading layout properties
-            node.offsetHeight;
-            node.scrollHeight;
+            void node.offsetHeight;
+            void node.scrollHeight;
             // Add a small delay to ensure everything is painted
             setTimeout(() => resolve(null), 100);
           });
@@ -423,12 +435,13 @@ async function renderReceiptPng(c: ShareCtx): Promise<string> {
 
 /** Opens the native share sheet with the receipt image. The user picks ANY
  * recipient/group manually — the load's party is never pre-selected. */
-export async function shareWhatsAppImage(c: ShareCtx) {
+/* eslint-disable @typescript-eslint/no-unused-vars */
+async function legacyShareWhatsAppImage(c: ShareCtx) {
   try {
     const dataUrl = await renderReceiptPng(c);
     const res = await fetch(dataUrl);
     const blob = await res.blob();
-    const filename = `nexus-${c.load.label.replace(/\s+/g, "-")}.png`;
+    const filename = generateFilename(c, ".png");
     // Native → writes to cache + system share sheet. Web → Web Share / download.
     await shareBinaryFile({
       filename,
@@ -441,13 +454,108 @@ export async function shareWhatsAppImage(c: ShareCtx) {
     throw new Error("Failed to generate or share image. Please try again.");
   }
 }
+/* eslint-enable @typescript-eslint/no-unused-vars */
+
+export async function shareWhatsAppImage(c: ShareCtx) {
+  const filename = generateFilename(c, ".png");
+  const whatsappWindow = !isNativePlatform()
+    ? window.open("about:blank", "_blank", "width=520,height=720")
+    : null;
+  if (!isNativePlatform() && !whatsappWindow) {
+    throw new Error("Popup blocked - allow popups to open WhatsApp share.");
+  }
+  if (whatsappWindow) {
+    whatsappWindow.document.open();
+    whatsappWindow.document.write(
+      '<!doctype html><title>Nexus Weight</title><body style="font-family:Arial,sans-serif;padding:24px">Preparing WhatsApp share...</body>',
+    );
+    whatsappWindow.document.close();
+  }
+
+  try {
+    const dataUrl = await renderReceiptPng(c);
+    const res = await fetch(dataUrl);
+    const blob = await res.blob();
+
+    if (isNativePlatform()) {
+      await shareBinaryFile({
+        filename,
+        blob,
+        mimeType: "image/png",
+        title: "Nexus Weight Receipt",
+      });
+      return;
+    }
+
+    triggerDownload(blob, filename);
+    const text = encodeURIComponent(
+      "Nexus Weight receipt image is ready. Attach the downloaded PNG in WhatsApp if it is not attached automatically.",
+    );
+    if (!whatsappWindow) {
+      throw new Error("Popup blocked - allow popups to open WhatsApp share.");
+    }
+    whatsappWindow.location.href = `https://wa.me/?text=${text}`;
+  } catch (error) {
+    if (whatsappWindow && !whatsappWindow.closed) whatsappWindow.close();
+    console.error("WhatsApp image share failed:", error);
+    throw error instanceof Error
+      ? error
+      : new Error("Failed to generate or share image. Please try again.");
+  }
+}
+
+async function shareFileWithWebFallback(opts: {
+  filename: string;
+  blob: Blob;
+  mimeType: string;
+  title: string;
+  whatsappText: string;
+  shareWindow: Window;
+}) {
+  const { filename, blob, mimeType, title, whatsappText, shareWindow } = opts;
+  shareWindow.document.open();
+  shareWindow.document.write(
+    '<!doctype html><title>Nexus Weight</title><body style="font-family:Arial,sans-serif;padding:24px">Preparing share...</body>',
+  );
+  shareWindow.document.close();
+
+  const fileUrl = URL.createObjectURL(blob);
+  const file = new File([blob], filename, { type: mimeType });
+  const nav = navigator as Navigator & { canShare?: (d: unknown) => boolean };
+  if (canShareFile(filename, mimeType) && nav.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title });
+      shareWindow.close();
+      setTimeout(() => URL.revokeObjectURL(fileUrl), 4000);
+      return;
+    } catch {
+      // Browsers commonly reject this after async file generation; keep the
+      // reserved popup alive and use the document-share fallback below.
+    }
+  }
+
+  triggerDownload(blob, filename);
+  const text = encodeURIComponent(whatsappText);
+  shareWindow.document.open();
+  shareWindow.document.write(`<!doctype html>
+    <html><head><meta charset="utf-8"><title>Nexus Weight Share</title></head>
+    <body style="font-family:Arial,sans-serif;padding:24px;line-height:1.45">
+      <h3 style="margin:0 0 12px">Share file ready</h3>
+      <p>The file has been downloaded. Attach it in WhatsApp or open it below.</p>
+      <p><a href="https://wa.me/?text=${text}" style="font-weight:700">Open WhatsApp</a></p>
+      <p><a href="${fileUrl}" target="_blank" rel="noreferrer">Open ${filename}</a></p>
+    </body></html>`);
+  shareWindow.document.close();
+  shareWindow.location.href = `https://wa.me/?text=${text}`;
+  setTimeout(() => URL.revokeObjectURL(fileUrl), 60000);
+}
 
 /** Download the receipt image to device storage. */
 export async function downloadImage(c: ShareCtx) {
   const dataUrl = await renderReceiptPng(c);
   const res = await fetch(dataUrl);
   const blob = await res.blob();
-  const filename = `nexus-${c.load.label.replace(/\s+/g, "-")}.png`;
+  const filename = generateFilename(c, ".png");
   if (isNativePlatform()) {
     await shareBinaryFile({
       filename,
@@ -506,7 +614,8 @@ function triggerDownload(blob: Blob, filename: string) {
 }
 
 /* ============================ PROFESSIONAL PDF ============================ */
-async function buildPdfBlob(
+/* eslint-disable @typescript-eslint/no-unused-vars */
+async function legacyBuildPdfBlob(
   c: ShareCtx,
 ): Promise<{ blob: Blob; filename: string }> {
   const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
@@ -976,13 +1085,550 @@ async function buildPdfBlob(
 
   const bytes = await pdf.save();
   const blob = new Blob([bytes.slice().buffer], { type: "application/pdf" });
-  const filename = `nexus-${load.label.replace(/\s+/g, "-")}.pdf`;
+  const filename = generateFilename(c, ".pdf");
+  return { blob, filename };
+}
+/* eslint-enable @typescript-eslint/no-unused-vars */
+
+async function buildPdfBlob(
+  c: ShareCtx,
+): Promise<{ blob: Blob; filename: string }> {
+  const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
+  const { load, entries, party } = c;
+  const pdf = await PDFDocument.create();
+  const font = await pdf.embedFont(StandardFonts.Helvetica);
+  const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+
+  const W = 595;
+  const H = 842;
+  const M = 28;
+  const contentW = W - 2 * M;
+  const footerY = 24;
+  const bottomReserve = 52;
+
+  const tc = currentThemeColors();
+  const green = rgb(tc.deepRgb[0], tc.deepRgb[1], tc.deepRgb[2]);
+  const ink = rgb(0.059, 0.09, 0.165);
+  const sub = rgb(0.39, 0.45, 0.55);
+  const faint = rgb(0.58, 0.64, 0.72);
+  const soft = rgb(0.973, 0.976, 0.98);
+  const softer = rgb(0.988, 0.988, 0.988);
+  const line = rgb(0.82, 0.84, 0.87);
+  const darkLine = rgb(0.47, 0.51, 0.56);
+  const white = rgb(1, 1, 1);
+  const black = rgb(0, 0, 0);
+
+  let page = pdf.addPage([W, H]);
+  let pageNo = 1;
+  const stats = computeLoadStats(load, entries);
+  const {
+    entryCount,
+    gross,
+    tare,
+    net,
+    firstEntryAt,
+    lastEntryAt,
+    lowestWeight,
+    highestWeight,
+  } = stats;
+  const { customLabel1, customLabel2, customLabel3 } = getBusinessLabels();
+  const company = getCompanyProfile();
+
+  const rightText = (
+    t: string,
+    x: number,
+    y: number,
+    size: number,
+    f = font,
+    color = ink,
+  ) => {
+    page.drawText(t, {
+      x: x - f.widthOfTextAtSize(t, size),
+      y,
+      size,
+      font: f,
+      color,
+    });
+  };
+  const drawTextFit = (
+    text: string,
+    x: number,
+    y: number,
+    maxW: number,
+    size: number,
+    f = font,
+    color = ink,
+  ) => {
+    let out = text || "-";
+    while (out.length > 1 && f.widthOfTextAtSize(out, size) > maxW) {
+      out = `${out.slice(0, -2)}.`;
+    }
+    page.drawText(out, { x, y, size, font: f, color });
+  };
+  const newPage = () => {
+    page = pdf.addPage([W, H]);
+    pageNo += 1;
+  };
+  const ensureSpace = (y: number, needed: number) => {
+    if (y - needed < bottomReserve) {
+      newPage();
+      return H - M;
+    }
+    return y;
+  };
+  const tableColumns = (count: number) =>
+    count <= 10 ? 1 : count <= 30 ? 2 : count <= 60 ? 3 : 4;
+  const fieldLabel = (n: CatalogFieldNumber) =>
+    n === 1 ? customLabel1 : n === 2 ? customLabel2 : customLabel3;
+  const fieldValue = (
+    obj: Load | Entry,
+    n: CatalogFieldNumber,
+  ): string | null | undefined =>
+    n === 1
+      ? obj.custom_field_1
+      : n === 2
+        ? obj.custom_field_2
+        : obj.custom_field_3;
+  const entryFieldValue = (entry: Entry, n: CatalogFieldNumber) =>
+    fieldValue(entry, n) || fieldValue(load, n) || "Others";
+  const distinctValues = (n: CatalogFieldNumber) =>
+    new Set(entries.map((e) => entryFieldValue(e, n)).filter(Boolean)).size;
+
+  const groupField = ([3, 2, 1] as CatalogFieldNumber[]).find(
+    (n) => fieldLabel(n) && distinctValues(n) > 1,
+  );
+  const sections = groupField
+    ? Array.from(
+        entries.reduce(
+          (map, entry, index) => {
+            const label = entryFieldValue(entry, groupField);
+            const current = map.get(label) ?? {
+              label,
+              rows: [],
+              totalWeight: 0,
+            };
+            current.rows.push({ entry, index });
+            current.totalWeight += Number(entry.weight);
+            map.set(label, current);
+            return map;
+          },
+          new Map<
+            string,
+            {
+              label: string;
+              rows: Array<{ entry: Entry; index: number }>;
+              totalWeight: number;
+            }
+          >(),
+        ),
+      ).map(([, section]) => section)
+    : [
+        {
+          label: "",
+          rows: entries.map((entry, index) => ({ entry, index })),
+          totalWeight: gross,
+        },
+      ];
+
+  const durationLabel = (() => {
+    if (!firstEntryAt || !lastEntryAt) return "-";
+    const ms = Math.max(0, +new Date(lastEntryAt) - +new Date(firstEntryAt));
+    const mins = Math.floor(ms / 60000);
+    const hours = Math.floor(mins / 60);
+    const rem = mins % 60;
+    return hours ? `${hours}h ${rem}m` : `${mins}m`;
+  })();
+  const dayName = new Date(load.created_at || Date.now()).toLocaleDateString(
+    "en-IN",
+    { weekday: "long" },
+  );
+  const headerChain =
+    load.custom_field_1 && load.custom_field_2
+      ? `${load.custom_field_1} -> ${load.custom_field_2}`
+      : load.custom_field_1
+        ? `${load.custom_field_1} -> General`
+        : load.custom_field_2 || load.custom_field_3 || "";
+  const totalVakkal =
+    load.container_count != null && Number(load.container_count) > 0
+      ? String(Number(load.container_count))
+      : "-";
+
+  let y = H - M;
+
+  const headerH = 112;
+  page.drawRectangle({
+    x: M,
+    y: y - headerH,
+    width: contentW,
+    height: headerH,
+    color: white,
+    borderColor: darkLine,
+    borderWidth: 1.1,
+  });
+  page.drawRectangle({
+    x: M,
+    y: y - 20,
+    width: contentW,
+    height: 20,
+    color: ink,
+  });
+  page.drawText("COMMERCIAL WEIGHT REPORT", {
+    x: M + 10,
+    y: y - 14,
+    size: 8,
+    font: bold,
+    color: white,
+  });
+  rightText("A4 PRINT RECORD", W - M - 10, y - 14, 8, bold, white);
+
+  const leftX = M + 14;
+  const rightX = M + contentW - 160;
+  drawTextFit(
+    (company.companyName || "NEXUS WEIGHT").toUpperCase(),
+    leftX,
+    y - 44,
+    rightX - leftX - 18,
+    20,
+    bold,
+    ink,
+  );
+  drawTextFit((party?.name || "-").toUpperCase(), leftX, y - 64, 260, 12, bold);
+  drawTextFit((load.label || "-").toUpperCase(), leftX, y - 82, 260, 13, bold);
+  if (headerChain)
+    drawTextFit(headerChain, leftX, y - 100, 300, 10, bold, green);
+
+  const meta: Array<[string, string]> = [
+    ["Date", fmtDate(load.created_at)],
+    ["Day", dayName],
+    ["Start Time", fmtTime(firstEntryAt)],
+    ["End Time", fmtTime(lastEntryAt)],
+    ["Duration", durationLabel],
+  ];
+  meta.forEach(([label, value], i) => {
+    const rowY = y - 38 - i * 12;
+    page.drawText(label.toUpperCase(), {
+      x: rightX,
+      y: rowY,
+      size: 6.5,
+      font: bold,
+      color: faint,
+    });
+    rightText(value, W - M - 14, rowY, 8.5, bold, ink);
+  });
+  y -= headerH;
+
+  const summaryH = 48;
+  const summaryItems: Array<[string, string, boolean]> = [
+    ["Total Entries", String(entryCount), false],
+    ["Total Vakkal", totalVakkal, false],
+    ["Gross Weight", gross.toFixed(2), false],
+    ["Tare Weight", tare.toFixed(2), false],
+    ["Net Weight", net.toFixed(2), true],
+    ["Lowest Weight", lowestWeight.toFixed(2), false],
+    ["Highest Weight", highestWeight.toFixed(2), false],
+  ];
+  const blockW = contentW / summaryItems.length;
+  summaryItems.forEach(([label, value, highlight], i) => {
+    const x = M + i * blockW;
+    page.drawRectangle({
+      x,
+      y: y - summaryH,
+      width: blockW,
+      height: summaryH,
+      color: highlight ? green : soft,
+      borderColor: darkLine,
+      borderWidth: 0.8,
+    });
+    drawTextFit(
+      value,
+      x + 6,
+      y - 21,
+      blockW - 12,
+      14,
+      bold,
+      highlight ? white : ink,
+    );
+    drawTextFit(
+      label.toUpperCase(),
+      x + 6,
+      y - 37,
+      blockW - 12,
+      6.5,
+      bold,
+      highlight ? white : sub,
+    );
+  });
+  y -= summaryH + 14;
+
+  const drawSectionHeader = (
+    sectionLabel: string,
+    groupFieldNum: CatalogFieldNumber | undefined,
+    count: number,
+    weight: number,
+    topY: number,
+  ) => {
+    if (!sectionLabel) return topY;
+    const h = 26;
+    page.drawRectangle({
+      x: M,
+      y: topY - h,
+      width: contentW,
+      height: h,
+      color: soft,
+      borderColor: darkLine,
+      borderWidth: 0.9,
+    });
+
+    // Build the header text
+    let headerText = sectionLabel.toUpperCase();
+    if (groupFieldNum === 2 && load.custom_field_1) {
+      headerText = `${load.custom_field_1.toUpperCase()} -> ${sectionLabel.toUpperCase()}`;
+    } else if (groupFieldNum === 2) {
+      headerText = `GENERAL -> ${sectionLabel.toUpperCase()}`;
+    } else if (
+      groupFieldNum === 3 &&
+      load.custom_field_2 &&
+      load.custom_field_1
+    ) {
+      headerText = `${load.custom_field_1.toUpperCase()} -> ${load.custom_field_2.toUpperCase()} -> ${sectionLabel.toUpperCase()}`;
+    } else if (groupFieldNum === 3 && load.custom_field_2) {
+      headerText = `GENERAL -> ${load.custom_field_2.toUpperCase()} -> ${sectionLabel.toUpperCase()}`;
+    } else if (groupFieldNum === 3) {
+      headerText = `GENERAL -> GENERAL -> ${sectionLabel.toUpperCase()}`;
+    }
+
+    page.drawText(headerText, {
+      x: M + 9,
+      y: topY - 17,
+      size: 10,
+      font: bold,
+      color: ink,
+    });
+    rightText(
+      `Entries: ${count}    Weight: ${weight.toFixed(2)} kg`,
+      W - M - 9,
+      topY - 17,
+      9,
+      bold,
+      green,
+    );
+    return topY - h - 6;
+  };
+
+  const drawEntryTable = (
+    rows: Array<{ entry: Entry; index: number }>,
+    topY: number,
+  ) => {
+    let currentY = topY;
+    let idx = 0;
+    const cols = tableColumns(rows.length);
+    const colW = contentW / cols;
+    const rowH = 15;
+    const headH = 18;
+
+    while (idx < rows.length) {
+      currentY = ensureSpace(currentY, headH + rowH + 4);
+      const availableRows = Math.max(
+        1,
+        Math.floor((currentY - bottomReserve - headH) / rowH),
+      );
+      const remaining = rows.length - idx;
+      const rowsThisCol = Math.ceil(
+        Math.min(remaining, availableRows * cols) / cols,
+      );
+      const chunk = Math.min(remaining, rowsThisCol * cols);
+      const tableH = headH + rowsThisCol * rowH;
+
+      page.drawRectangle({
+        x: M,
+        y: currentY - tableH,
+        width: contentW,
+        height: tableH,
+        color: white,
+        borderColor: darkLine,
+        borderWidth: 0.9,
+      });
+      for (let col = 0; col < cols; col += 1) {
+        const x = M + col * colW;
+        page.drawRectangle({
+          x,
+          y: currentY - headH,
+          width: colW,
+          height: headH,
+          color: ink,
+        });
+        if (col > 0) {
+          page.drawLine({
+            start: { x, y: currentY },
+            end: { x, y: currentY - tableH },
+            thickness: 0.7,
+            color: darkLine,
+          });
+        }
+        page.drawText("Sr No.", {
+          x: x + 7,
+          y: currentY - 12,
+          size: 8,
+          font: bold,
+          color: white,
+        });
+        rightText("Weight (kg)", x + colW - 7, currentY - 12, 8, bold, white);
+      }
+      for (let r = 0; r < rowsThisCol; r += 1) {
+        const ry = currentY - headH - r * rowH;
+        if (r % 2 === 1) {
+          page.drawRectangle({
+            x: M,
+            y: ry - rowH,
+            width: contentW,
+            height: rowH,
+            color: softer,
+          });
+        }
+        page.drawLine({
+          start: { x: M, y: ry - rowH },
+          end: { x: W - M, y: ry - rowH },
+          thickness: 0.35,
+          color: line,
+        });
+      }
+      for (let local = 0; local < chunk; local += 1) {
+        const row = rows[idx + local];
+        const col = Math.floor(local / rowsThisCol);
+        const r = local % rowsThisCol;
+        const x = M + col * colW;
+        const ry = currentY - headH - r * rowH - 10.5;
+        const sr = `#${row.index + 1}`;
+        const kg = Number(row.entry.weight).toFixed(2);
+        page.drawText(sr, {
+          x: x + 8,
+          y: ry,
+          size: 8.5,
+          font: bold,
+          color: ink,
+        });
+        rightText(kg, x + colW - 8, ry, 9.5, bold, black);
+      }
+      idx += chunk;
+      currentY -= tableH + 10;
+      if (idx < rows.length) {
+        newPage();
+        currentY = H - M;
+      }
+    }
+    return currentY;
+  };
+
+  page.drawText("WEIGHT ENTRIES", {
+    x: M,
+    y,
+    size: 10,
+    font: bold,
+    color: sub,
+  });
+  y -= 10;
+
+  for (const section of sections) {
+    y = ensureSpace(y, (section.label ? 36 : 0) + 38);
+    y = drawSectionHeader(
+      section.label,
+      groupField,
+      section.rows.length,
+      section.totalWeight,
+      y,
+    );
+    y = drawEntryTable(section.rows, y);
+  }
+
+  y = ensureSpace(y, 76);
+  const totalH = 58;
+  page.drawRectangle({
+    x: M,
+    y: y - totalH,
+    width: contentW,
+    height: totalH,
+    color: white,
+    borderColor: darkLine,
+    borderWidth: 1,
+  });
+  const calcWidths = [0.245, 0.07, 0.245, 0.07, 0.37];
+  const calcItems: Array<[string, string, boolean]> = [
+    ["Gross Weight", `${gross.toFixed(2)} kg`, false],
+    [" ", "-", false],
+    ["Tare Weight", `${tare.toFixed(2)} kg`, false],
+    [" ", "=", false],
+    ["Net Weight", `${net.toFixed(2)} kg`, true],
+  ];
+  let calcX = M;
+  calcItems.forEach(([label, value, highlight], i) => {
+    const w = contentW * calcWidths[i];
+    page.drawRectangle({
+      x: calcX,
+      y: y - totalH,
+      width: w,
+      height: totalH,
+      color: highlight ? green : i % 2 === 1 ? softer : white,
+      borderColor: line,
+      borderWidth: 0.6,
+    });
+    const valueSize = highlight ? 18 : i % 2 === 1 ? 18 : 13;
+    drawTextFit(
+      value,
+      calcX + 9,
+      y - 25,
+      w - 18,
+      valueSize,
+      bold,
+      highlight ? white : ink,
+    );
+    drawTextFit(
+      label.toUpperCase(),
+      calcX + 9,
+      y - 43,
+      w - 18,
+      7,
+      bold,
+      highlight ? white : sub,
+    );
+    calcX += w;
+  });
+
+  const generatedAt = new Date().toLocaleString("en-IN");
+  pdf.getPages().forEach((p, i) => {
+    p.drawLine({
+      start: { x: M, y: footerY + 13 },
+      end: { x: W - M, y: footerY + 13 },
+      thickness: 0.5,
+      color: line,
+    });
+    p.drawText(`Generated by Nexus Weight | ${generatedAt}`, {
+      x: M,
+      y: footerY,
+      size: 7.5,
+      font,
+      color: faint,
+    });
+    const pageLabel = `Page ${i + 1} of ${pageNo}`;
+    p.drawText(pageLabel, {
+      x: W - M - font.widthOfTextAtSize(pageLabel, 7.5),
+      y: footerY,
+      size: 7.5,
+      font,
+      color: faint,
+    });
+  });
+
+  const bytes = await pdf.save();
+  const pdfBytes = new Uint8Array(bytes);
+  const blob = new Blob([pdfBytes.buffer], { type: "application/pdf" });
+  const filename = generateFilename(c, ".pdf");
   return { blob, filename };
 }
 
 /** Share the PDF via the native share sheet (WhatsApp, email, etc. — kept as
  * the original export for backward compatibility with existing callers). */
-export async function exportPDF(c: ShareCtx) {
+/* eslint-disable @typescript-eslint/no-unused-vars */
+async function legacyExportPDF(c: ShareCtx) {
   const { blob, filename } = await buildPdfBlob(c);
   // Native → save + share sheet (open in / share the PDF). Web → download.
   await shareBinaryFile({
@@ -991,6 +1637,55 @@ export async function exportPDF(c: ShareCtx) {
     mimeType: "application/pdf",
     title: "Nexus Weight — PDF",
   });
+}
+/* eslint-enable @typescript-eslint/no-unused-vars */
+
+export async function exportPDF(c: ShareCtx) {
+  if (!isNativePlatform()) {
+    const shareWindow = window.open(
+      "about:blank",
+      "_blank",
+      "width=520,height=720",
+    );
+    if (!shareWindow) {
+      throw new Error("Popup blocked - allow popups to open the share window.");
+    }
+    shareWindow.document.open();
+    shareWindow.document.write(
+      '<!doctype html><title>Nexus Weight</title><body style="font-family:Arial,sans-serif;padding:24px">Preparing PDF share...</body>',
+    );
+    shareWindow.document.close();
+
+    try {
+      const { blob, filename } = await buildPdfBlob(c);
+      await shareFileWithWebFallback({
+        filename,
+        blob,
+        mimeType: "application/pdf",
+        title: "Nexus Weight PDF",
+        whatsappText:
+          "Nexus Weight PDF is ready. Attach the downloaded PDF in WhatsApp.",
+        shareWindow,
+      });
+    } catch (error) {
+      if (!shareWindow.closed) shareWindow.close();
+      throw error;
+    }
+    return;
+  }
+
+  const { blob, filename } = await buildPdfBlob(c);
+  const result = await shareBinaryFile({
+    filename,
+    blob,
+    mimeType: "application/pdf",
+    title: "Nexus Weight PDF",
+  });
+  if (result === "downloaded") {
+    throw new Error(
+      "This browser cannot open a file share dialog for PDFs. The PDF was downloaded instead.",
+    );
+  }
 }
 
 /** Save the PDF straight to device storage (Documents on native, browser

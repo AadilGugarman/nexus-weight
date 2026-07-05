@@ -69,6 +69,7 @@ export default function EntryPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const [val, setVal] = useState("");
   const [picker, setPicker] = useState(false);
+  const [editingLoad, setEditingLoad] = useState<Load | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
   const [editVal, setEditVal] = useState("");
   const [finalizeSheetOpen, setFinalizeSheetOpen] = useState(false);
@@ -157,6 +158,12 @@ export default function EntryPage() {
   const activeGroupFields = groupFields.filter(
     (f): f is typeof f & { label: string } => !!f.label,
   );
+
+  // Clear finalized confirmation screen on mount (when navigating back to Entry page)
+  useEffect(() => {
+    setJustFinalizedLoad(null);
+    setJustFinalizedEntries([]);
+  }, []);
 
   useEffect(() => {
     if (activeLoadId) void loadEntries(activeLoadId);
@@ -436,11 +443,16 @@ export default function EntryPage() {
         />
         {picker && (
           <LoadPicker
-            onClose={() => setPicker(false)}
+            onClose={() => {
+              setPicker(false);
+              setEditingLoad(null);
+            }}
             onPick={(l: Load) => {
               setActiveLoad(l.id);
               setPicker(false);
+              setEditingLoad(null);
             }}
+            editLoad={editingLoad}
           />
         )}
       </div>
@@ -516,11 +528,16 @@ export default function EntryPage() {
         )}
         {picker && (
           <LoadPicker
-            onClose={() => setPicker(false)}
+            onClose={() => {
+              setPicker(false);
+              setEditingLoad(null);
+            }}
             onPick={(l: Load) => {
               setActiveLoad(l.id);
               setPicker(false);
+              setEditingLoad(null);
             }}
+            editLoad={editingLoad}
           />
         )}
       </div>
@@ -551,12 +568,29 @@ export default function EntryPage() {
             placeholder="Select load"
           />
         </div>
-        <button
-          onClick={() => setPicker(true)}
-          className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-3 text-lime-400 font-bold shrink-0"
-        >
-          + Load
-        </button>
+        <div className="flex gap-2 shrink-0">
+          {activeLoad && (
+            <button
+              onClick={() => {
+                setEditingLoad(activeLoad);
+                setPicker(true);
+              }}
+              className="bg-slate-800 border border-slate-700 rounded-xl px-3 h-10 text-slate-300 font-bold hover:text-lime-400 hover:border-lime-500 transition flex items-center justify-center"
+              aria-label="Edit load"
+            >
+              <Pencil size={16} />
+            </button>
+          )}
+          <button
+            onClick={() => {
+              setEditingLoad(null);
+              setPicker(true);
+            }}
+            className="bg-slate-800 border border-slate-700 rounded-xl px-3 h-10 text-lime-400 font-bold shrink-0 flex items-center justify-center"
+          >
+            + Load
+          </button>
+        </div>
       </div>
 
       {/* Summary Cards - Entries and Total Weight */}
@@ -608,19 +642,6 @@ export default function EntryPage() {
           </p>
         </div>
       </div>
-      {party && (
-        <div className="flex flex-wrap gap-1.5 mb-3">
-          <span
-            className="text-[11px] font-bold rounded-full px-2.5 py-1"
-            style={{
-              background: "var(--surface-2)",
-              color: "var(--text-muted)",
-            }}
-          >
-            {party.name}
-          </span>
-        </div>
-      )}
 
       {/* Active Tag Mode — pick a label value once, every new entry inherits
           it until changed. Existing single-classification loads work
@@ -714,8 +735,20 @@ export default function EntryPage() {
                 totalWeight: number;
               }> = [];
               entries.forEach((e, i) => {
-                const label =
-                  e.custom_field_2 || activeLoad?.custom_field_2 || "Others";
+                // Determine the label for grouping:
+                // 1. If entry has custom_field_2, use it
+                // 2. If entry doesn't have custom_field_2 but load has it, use load's value
+                // 3. If entry has custom_field_1, show it as "Label1 - General"
+                // 4. Otherwise, use "General"
+                let label: string;
+                if (e.custom_field_2 || activeLoad?.custom_field_2) {
+                  label = e.custom_field_2 || activeLoad?.custom_field_2 || "General";
+                } else if (e.custom_field_1 || activeLoad?.custom_field_1) {
+                  const label1 = e.custom_field_1 || activeLoad?.custom_field_1 || "";
+                  label = `${label1} - General`;
+                } else {
+                  label = "General";
+                }
                 let section = sections.find((s) => s.label === label);
                 if (!section) {
                   section = { label, entries: [], totalWeight: 0 };
@@ -961,11 +994,16 @@ export default function EntryPage() {
 
       {picker && (
         <LoadPicker
-          onClose={() => setPicker(false)}
+          onClose={() => {
+            setPicker(false);
+            setEditingLoad(null);
+          }}
           onPick={(l: Load) => {
             setActiveLoad(l.id);
             setPicker(false);
+            setEditingLoad(null);
           }}
+          editLoad={editingLoad}
         />
       )}
     </div>

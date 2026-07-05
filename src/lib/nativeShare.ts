@@ -15,6 +15,25 @@ function blobToBase64(blob: Blob): Promise<string> {
   });
 }
 
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+export function canShareFile(filename: string, mimeType: string): boolean {
+  if (isNative()) return true;
+  if (!window.isSecureContext) return false;
+  const nav = navigator as Navigator & { canShare?: (d: unknown) => boolean };
+  if (!navigator.share || !nav.canShare) return false;
+  try {
+    const file = new File([new Blob(['share-test'], { type: mimeType })], filename, {
+      type: mimeType,
+    });
+    return nav.canShare({ files: [file] });
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Save a binary file to the device cache and open the native share sheet.
  * Falls back to a normal browser download when not running natively.
@@ -44,15 +63,16 @@ export async function shareBinaryFile(opts: {
     return 'shared';
   }
 
-  // Web fallback: try the Web Share API with files, else download.
+  // Web fallback: try the Web Share API with files, else download visibly.
   const file = new File([blob], filename, { type: mimeType });
   const nav = navigator as Navigator & { canShare?: (d: unknown) => boolean };
   if (nav.canShare && nav.canShare({ files: [file] })) {
     try {
       await navigator.share({ files: [file], title: title || 'Nexus Weight', text: text || '' });
       return 'shared';
-    } catch {
-      /* fall through to download */
+    } catch (error) {
+      if (isAbortError(error)) return 'shared';
+      throw new Error('Share dialog was blocked by the browser. Please try again from the share button.');
     }
   }
   const url = URL.createObjectURL(blob);
