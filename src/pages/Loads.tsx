@@ -195,11 +195,11 @@ export default function Loads() {
                   <p className="text-xs text-slate-500">
                     {new Date(l.created_at || '').toLocaleDateString('en-IN')}
                   </p>
-                  <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5 bg-lime-500/15 text-lime-400">
+                  <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-extrabold rounded-full px-2 py-0.5 bg-lime-500/20 text-lime-300">
                     {entryCount} {entryCount === 1 ? 'entry' : 'entries'}
                   </span>
                   {l.status === 'finalized' ? (
-                    <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold rounded-full px-2 py-0.5" style={{ background: 'var(--accent-soft)', color: 'var(--accent-deep)' }}>
+                    <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-extrabold rounded-full px-2 py-0.5 bg-lime-500/20 text-lime-300">
                       <Lock size={10} /> Finalized
                     </span>
                   ) : (
