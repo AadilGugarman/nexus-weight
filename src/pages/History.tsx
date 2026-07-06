@@ -47,7 +47,7 @@ async function searchOffline(userId: string, filters: {
         [l.custom_field_1, l.custom_field_2, l.custom_field_3].filter(Boolean).join(' ').toLowerCase().includes(term);
     });
   }
-  rows.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+  rows.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''));
 
   const total = rows.length;
   const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);

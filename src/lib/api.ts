@@ -250,7 +250,7 @@ export async function apiGet<T>(path: string): Promise<T> {
     case "catalog_value_links":
       return getList<T>("catalog_value_links", userId, "created_at");
     case "loads":
-      return getList<T>("loads", userId, "created_at");
+      return getList<T>("loads", userId, "updated_at");
     case "entries":
       return getEntries<T>(userId, params);
     case "history":

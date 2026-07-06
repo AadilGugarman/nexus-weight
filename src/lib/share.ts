@@ -1304,10 +1304,23 @@ async function buildPdfBlob(
       : load.custom_field_1
         ? `${load.custom_field_1} -> General`
         : load.custom_field_2 || load.custom_field_3 || "";
-  const totalVakkal =
-    load.container_count != null && Number(load.container_count) > 0
+  
+  // Calculate unique label2 count for Total Vakkal
+  const uniqueLabel2Count = customLabel2
+    ? new Set(
+        entries.map((e) => e.custom_field_2 || load.custom_field_2 || "General")
+      ).size
+    : 0;
+  
+  const totalVakkal = customLabel2
+    ? String(uniqueLabel2Count)
+    : load.container_count != null && Number(load.container_count) > 0
       ? String(Number(load.container_count))
       : "-";
+  
+  const totalVakkalLabel = customLabel2
+    ? `Total ${customLabel2}`
+    : "Total Vakkal";
 
   let y = H - M;
 
@@ -1376,7 +1389,7 @@ async function buildPdfBlob(
   const summaryH = 48;
   const summaryItems: Array<[string, string, boolean]> = [
     ["Total Entries", String(entryCount), false],
-    ["Total Vakkal", totalVakkal, false],
+    [totalVakkalLabel, totalVakkal, false],
     ["Gross Weight", gross.toFixed(2), false],
     ["Tare Weight", tare.toFixed(2), false],
     ["Net Weight", net.toFixed(2), true],

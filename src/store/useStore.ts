@@ -115,11 +115,12 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   loadAll: async () => {
-    const [cp, ccv, cvl, cl] = await Promise.all([
+    const [cp, ccv, cvl, cl, ce] = await Promise.all([
       db.parties.filter((x) => !x.is_deleted).toArray(),
       db.catalogValues.filter((x) => !x.is_deleted).toArray(),
       db.catalogValueLinks.filter((x) => !x.is_deleted).toArray(),
       db.loads.filter((x) => !x.is_deleted).toArray(),
+      db.entries.filter((x) => !x.is_deleted).toArray(),
     ]);
     set({ parties: cp, catalogValues: ccv, catalogValueLinks: cvl, loads: cl });
     const userId = get().userId;
@@ -136,17 +137,19 @@ export const useStore = create<AppState>((set, get) => ({
     }
     if (!navigator.onLine) return;
     try {
-      const [parties, catalogValues, catalogValueLinks, loads, profile] = await Promise.all([
+      const [parties, catalogValues, catalogValueLinks, loads, entries, profile] = await Promise.all([
         apiGet<Party[]>('parties'),
         apiGet<CatalogValue[]>('catalog_values'),
         apiGet<CatalogValueLink[]>('catalog_value_links'),
         apiGet<Load[]>('loads'),
+        apiGet<Entry[]>('entries'),
         apiGet<Profile>('profiles'),
       ]);
       await db.parties.bulkPut(parties);
       await db.catalogValues.bulkPut(catalogValues);
       await db.catalogValueLinks.bulkPut(catalogValueLinks);
       await db.loads.bulkPut(loads);
+      await db.entries.bulkPut(entries);
       await db.profile.put(profile);
       set({
         parties, catalogValues, catalogValueLinks, loads,
@@ -363,7 +366,7 @@ export const useStore = create<AppState>((set, get) => ({
   restoreLoad: async (load) => {
     const rec = { ...load, is_deleted: false };
     await db.loads.put(rec);
-    set({ loads: [rec, ...get().loads].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || '')) });
+    set({ loads: [rec, ...get().loads].sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || '')) });
     await enqueue('loads', 'create', { id: rec.id, party_id: rec.party_id, label: rec.label, created_at: rec.created_at, movement_type: rec.movement_type, custom_field_1: rec.custom_field_1, custom_field_2: rec.custom_field_2, custom_field_3: rec.custom_field_3, container_count: rec.container_count, weight_per_container: rec.weight_per_container, status: rec.status });
     await get().refreshPending();
   },
